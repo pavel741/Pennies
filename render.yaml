@@ -20,3 +20,7 @@ services:
         generateValue: true
       - key: PYTHON_VERSION
         value: "3.11.9"
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: FMP_API_KEY
+        sync: false

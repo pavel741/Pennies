@@ -5,3 +5,4 @@ __pycache__/
 pennies.db
 instance/
 .env
+FEATURES.md

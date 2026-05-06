@@ -319,7 +319,7 @@
     overflow: hidden;
     transition: max-height .35s ease;
   }
-  .breakdown-wrap.open { max-height: 600px; }
+  .breakdown-wrap.open { max-height: 900px; }
 
   .breakdown {
     display: grid;
@@ -520,7 +520,7 @@
 
   <div class="hero">
     <h1>Pennies</h1>
-    <p>Press the button and get instant stock suggestions based on fundamentals, valuation, dividends, and technicals.</p>
+    <p>Press the button and get instant stock suggestions based on fundamentals, valuation, dividends, technicals, analyst sentiment, and fair value analysis.</p>
   </div>
 
   <div class="cta-area">
@@ -809,6 +809,27 @@ function buildPrediction(pred) {
     </div>`;
   }
 
+  if (pred.dcf_value) {
+    const dcfDiff = ((pred.dcf_value - pred.current) / pred.current * 100);
+    const dcfCls = dcfDiff > 5 ? 'pred-up' : dcfDiff < -5 ? 'pred-down' : 'pred-neutral';
+    const dcfSign = dcfDiff > 0 ? '+' : '';
+    items += `
+    <div class="pred-item">
+      <span class="pred-item-label">DCF Fair Value</span>
+      <span class="pred-item-value ${dcfCls}">$${pred.dcf_value.toFixed(2)} <span class="pred-range">(${dcfSign}${dcfDiff.toFixed(1)}%)</span></span>
+    </div>`;
+  }
+
+  if (pred.earnings_momentum !== null && pred.earnings_momentum !== undefined) {
+    const emCls = pred.earnings_momentum > 0 ? 'pred-up' : pred.earnings_momentum < 0 ? 'pred-down' : 'pred-neutral';
+    const emSign = pred.earnings_momentum > 0 ? '+' : '';
+    items += `
+    <div class="pred-item">
+      <span class="pred-item-label">Earnings Momentum</span>
+      <span class="pred-item-value ${emCls}">${emSign}${pred.earnings_momentum.toFixed(1)}%</span>
+    </div>`;
+  }
+
   return `<div class="prediction-bar">
     <span class="pred-label">6M Outlook</span>
     <div class="pred-items">${items}</div>
@@ -859,6 +880,8 @@ function renderResults(results) {
           ${buildSection('Valuation', r.valuation)}
           ${buildSection('Dividends', r.dividends)}
           ${buildSection('Technicals', r.technicals)}
+          ${r.sentiment ? buildSection('Sentiment & Signals', r.sentiment) : ''}
+          ${r.fair_value ? buildSection('Fair Value', r.fair_value) : ''}
         </div>
       </div>
       <div class="card-actions">
@@ -1057,13 +1080,15 @@ function exportPDF() {
       y += 12;
     }
 
-    // ---- Four sections in a 2x2 grid ----
+    // ---- Score sections in a 2-column grid ----
     const sections = [
       { title: 'Fundamentals', data: r.fundamentals },
       { title: 'Valuation',    data: r.valuation },
       { title: 'Dividends',    data: r.dividends },
       { title: 'Technicals',   data: r.technicals },
     ];
+    if (r.sentiment) sections.push({ title: 'Sentiment & Signals', data: r.sentiment });
+    if (r.fair_value) sections.push({ title: 'Fair Value', data: r.fair_value });
     const colW = (usable - 6) / 2;
     const startY = y;
     let maxBottomY = y;

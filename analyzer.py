@@ -16,6 +16,8 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from yahoo_api import get_quote_summary, extract_info, get_chart, get_dividends, screen_stocks
+import finnhub_api
+import fmp_api
 
 logging.basicConfig(
     level=logging.INFO,
@@ -121,18 +123,27 @@ class StockReport:
     valuation: ScoreBreakdown
     dividends: ScoreBreakdown
     technicals: ScoreBreakdown
+    sentiment: Optional[ScoreBreakdown] = None
+    fair_value: Optional[ScoreBreakdown] = None
     prediction: Optional[dict] = None
     error: Optional[str] = None
 
     @property
+    def _active_parts(self) -> list[ScoreBreakdown]:
+        base = [self.fundamentals, self.valuation, self.dividends, self.technicals]
+        if self.sentiment and self.sentiment.max_score > 0:
+            base.append(self.sentiment)
+        if self.fair_value and self.fair_value.max_score > 0:
+            base.append(self.fair_value)
+        return base
+
+    @property
     def total_score(self) -> float:
-        parts = [self.fundamentals, self.valuation, self.dividends, self.technicals]
-        return sum(p.score for p in parts)
+        return sum(p.score for p in self._active_parts)
 
     @property
     def max_total(self) -> float:
-        parts = [self.fundamentals, self.valuation, self.dividends, self.technicals]
-        return sum(p.max_score for p in parts)
+        return sum(p.max_score for p in self._active_parts)
 
     @property
     def overall_pct(self) -> float:
@@ -187,6 +198,18 @@ class StockReport:
                 "pct": round(self.technicals.pct, 1),
                 "details": self.technicals.details,
             },
+            "sentiment": {
+                "score": round(self.sentiment.score, 1),
+                "max": round(self.sentiment.max_score, 1),
+                "pct": round(self.sentiment.pct, 1),
+                "details": self.sentiment.details,
+            } if self.sentiment and self.sentiment.max_score > 0 else None,
+            "fair_value": {
+                "score": round(self.fair_value.score, 1),
+                "max": round(self.fair_value.max_score, 1),
+                "pct": round(self.fair_value.pct, 1),
+                "details": self.fair_value.details,
+            } if self.fair_value and self.fair_value.max_score > 0 else None,
             "prediction": self.prediction,
             "error": self.error,
         }
@@ -594,12 +617,254 @@ def _score_technicals(hist: pd.DataFrame) -> ScoreBreakdown:
 
 
 # ---------------------------------------------------------------------------
+# 5. Sentiment & Signals  (max 25 pts) — Finnhub
+# ---------------------------------------------------------------------------
+def _fetch_finnhub(symbol: str) -> Optional[dict]:
+    """Fetch all Finnhub data for a symbol in one pass."""
+    if not finnhub_api.is_configured():
+        return None
+    return {
+        "recs": finnhub_api.get_recommendation_trend(symbol),
+        "earnings": finnhub_api.get_earnings_surprises(symbol),
+        "insider": finnhub_api.get_insider_transactions(symbol),
+    }
+
+
+def _fetch_fmp(symbol: str) -> Optional[dict]:
+    """Fetch all FMP data for a symbol in one pass."""
+    if not fmp_api.is_configured():
+        return None
+    return {
+        "dcf": fmp_api.get_dcf(symbol),
+        "ratios": fmp_api.get_financial_ratios(symbol),
+    }
+
+
+def _score_sentiment(fh_data: Optional[dict]) -> Optional[ScoreBreakdown]:
+    if fh_data is None:
+        return None
+
+    sb = ScoreBreakdown(max_score=25)
+
+    # --- Analyst recommendation trend (max 8) ---
+    recs = fh_data["recs"]
+    if recs and len(recs) >= 1:
+        latest = recs[0]
+        strong_buy = latest.get("strongBuy", 0)
+        buy = latest.get("buy", 0)
+        hold = latest.get("hold", 0)
+        sell = latest.get("sell", 0)
+        strong_sell = latest.get("strongSell", 0)
+        total = strong_buy + buy + hold + sell + strong_sell
+        if total > 0:
+            bullish_pct = (strong_buy + buy) / total * 100
+            if bullish_pct >= 70:
+                pts = 8
+            elif bullish_pct >= 50:
+                pts = 6
+            elif bullish_pct >= 30:
+                pts = 4
+            else:
+                pts = 2
+            sb.score += pts
+            sb.details.append({
+                "label": "Analyst Consensus",
+                "value": f"{bullish_pct:.0f}% bullish ({total} analysts)",
+                "pts": pts, "max": 8,
+            })
+        else:
+            sb.details.append({"label": "Analyst Consensus", "value": "No data", "pts": 0, "max": 8})
+    else:
+        sb.details.append({"label": "Analyst Consensus", "value": "N/A", "pts": 0, "max": 8})
+
+    # --- Earnings surprises (max 9) ---
+    earnings = fh_data["earnings"]
+    if earnings and len(earnings) >= 1:
+        recent = earnings[:4]
+        beats = sum(1 for e in recent if (e.get("surprisePercent") or 0) > 0)
+        avg_surprise = 0
+        valid = [e for e in recent if e.get("surprisePercent") is not None]
+        if valid:
+            avg_surprise = sum(e["surprisePercent"] for e in valid) / len(valid)
+
+        if beats == 4:
+            pts = 9
+        elif beats == 3:
+            pts = 7
+        elif beats == 2:
+            pts = 5
+        elif beats == 1:
+            pts = 3
+        else:
+            pts = 1
+        sb.score += pts
+        sb.details.append({
+            "label": "Earnings Surprises",
+            "value": f"{beats}/{len(recent)} beats (avg {avg_surprise:+.1f}%)",
+            "pts": pts, "max": 9,
+        })
+    else:
+        sb.details.append({"label": "Earnings Surprises", "value": "N/A", "pts": 0, "max": 9})
+
+    # --- Insider transactions (max 8) ---
+    insider_data = fh_data["insider"]
+    if insider_data and isinstance(insider_data, dict):
+        txns = insider_data.get("data", [])
+        if txns:
+            net_shares = sum(t.get("change", 0) for t in txns[:20])
+            if net_shares > 0:
+                pts = 8
+                signal = "Net buying"
+            elif net_shares == 0:
+                pts = 4
+                signal = "Neutral"
+            else:
+                pts = 2
+                signal = "Net selling"
+            sb.score += pts
+            sb.details.append({
+                "label": "Insider Activity",
+                "value": f"{signal} ({net_shares:+,.0f} shares)",
+                "pts": pts, "max": 8,
+            })
+        else:
+            sb.details.append({"label": "Insider Activity", "value": "No recent activity", "pts": 4, "max": 8})
+            sb.score += 4
+    else:
+        sb.details.append({"label": "Insider Activity", "value": "N/A", "pts": 0, "max": 8})
+
+    if sb.score == 0:
+        return None
+    return sb
+
+
+# ---------------------------------------------------------------------------
+# 6. Fair Value  (max 25 pts) — FMP
+# ---------------------------------------------------------------------------
+def _score_fair_value(fmp_data: Optional[dict], current_price: float) -> Optional[ScoreBreakdown]:
+    if fmp_data is None:
+        return None
+
+    sb = ScoreBreakdown(max_score=25)
+
+    # --- DCF intrinsic value vs market price (max 10) ---
+    dcf_data = fmp_data["dcf"]
+    if dcf_data and isinstance(dcf_data, list) and len(dcf_data) > 0:
+        dcf_val = dcf_data[0].get("dcf")
+        if dcf_val and current_price and current_price > 0:
+            dcf_val = float(dcf_val)
+            margin = (dcf_val - current_price) / current_price * 100
+            if margin > 30:
+                pts = 10
+            elif margin > 15:
+                pts = 8
+            elif margin > 0:
+                pts = 6
+            elif margin > -15:
+                pts = 4
+            elif margin > -30:
+                pts = 2
+            else:
+                pts = 1
+            sb.score += pts
+            sb.details.append({
+                "label": "DCF Fair Value",
+                "value": f"${dcf_val:.2f} ({margin:+.1f}% vs price)",
+                "pts": pts, "max": 10,
+            })
+        else:
+            sb.details.append({"label": "DCF Fair Value", "value": "N/A", "pts": 0, "max": 10})
+    else:
+        sb.details.append({"label": "DCF Fair Value", "value": "N/A", "pts": 0, "max": 10})
+
+    # --- Financial health: current ratio + debt/equity (max 8) ---
+    ratios = fmp_data["ratios"]
+    if ratios and isinstance(ratios, list) and len(ratios) > 0:
+        r = ratios[0]
+        cr = r.get("currentRatio")
+        de = r.get("debtToEquityRatio")
+        health_pts = 0
+
+        if cr is not None:
+            cr = float(cr)
+            if cr >= 2.0:
+                health_pts += 4
+            elif cr >= 1.5:
+                health_pts += 3
+            elif cr >= 1.0:
+                health_pts += 2
+            else:
+                health_pts += 1
+
+        if de is not None:
+            de = float(de)
+            if de < 0.5:
+                health_pts += 4
+            elif de < 1.0:
+                health_pts += 3
+            elif de < 2.0:
+                health_pts += 2
+            else:
+                health_pts += 1
+
+        sb.score += health_pts
+        cr_str = f"CR={cr:.2f}" if cr is not None else "CR=N/A"
+        de_str = f"D/E={de:.2f}" if de is not None else "D/E=N/A"
+        sb.details.append({
+            "label": "Financial Health",
+            "value": f"{cr_str}, {de_str}",
+            "pts": health_pts, "max": 8,
+        })
+
+        # --- Profitability: net profit margin (max 7) ---
+        npm = r.get("netProfitMargin")
+        if npm is not None:
+            npm_pct = float(npm) * 100
+            if npm_pct > 20:
+                pts = 7
+            elif npm_pct > 12:
+                pts = 5
+            elif npm_pct > 5:
+                pts = 3
+            elif npm_pct > 0:
+                pts = 2
+            else:
+                pts = 1
+            sb.score += pts
+            sb.details.append({
+                "label": "Net Profit Margin",
+                "value": f"{npm_pct:.1f}%",
+                "pts": pts, "max": 7,
+            })
+        else:
+            sb.details.append({"label": "Net Profit Margin", "value": "N/A", "pts": 0, "max": 7})
+    else:
+        sb.details.append({"label": "Financial Health", "value": "N/A", "pts": 0, "max": 8})
+        sb.details.append({"label": "Net Profit Margin", "value": "N/A", "pts": 0, "max": 7})
+
+    if sb.score == 0:
+        return None
+    return sb
+
+
+# ---------------------------------------------------------------------------
 # 6-Month Price Prediction
 # ---------------------------------------------------------------------------
-def _predict_price(info: dict, hist: pd.DataFrame, current_price: float) -> dict:
+def _predict_price(
+    info: dict,
+    hist: pd.DataFrame,
+    current_price: float,
+    fh_data: Optional[dict] = None,
+    fmp_data: Optional[dict] = None,
+) -> dict:
     """
-    Combine analyst consensus targets with a linear-regression trend projection
-    to estimate where the price might be in ~6 months.
+    Multi-source 6-month price prediction.
+
+    Signals (weighted dynamically based on availability):
+      - Analyst consensus target  (Yahoo)   — base weight 40
+      - Trend projection          (Yahoo)   — base weight 25
+      - DCF intrinsic value       (FMP)     — base weight 20
+      - Earnings momentum adj.    (Finnhub) — applied as a ±modifier
     """
     pred = {
         "current": round(current_price, 2),
@@ -609,11 +874,16 @@ def _predict_price(info: dict, hist: pd.DataFrame, current_price: float) -> dict
         "analyst_count": None,
         "trend_6m": None,
         "trend_direction": None,
+        "dcf_value": None,
+        "earnings_momentum": None,
         "combined_estimate": None,
         "upside_pct": None,
     }
 
-    # --- Analyst consensus ---
+    if not current_price or current_price <= 0:
+        return pred
+
+    # --- 1. Analyst consensus (Yahoo) ---
     target_mean = _safe(info.get("targetMeanPrice"))
     target_median = _safe(info.get("targetMedianPrice"))
     target_low = _safe(info.get("targetLowPrice"))
@@ -627,31 +897,71 @@ def _predict_price(info: dict, hist: pd.DataFrame, current_price: float) -> dict
         pred["analyst_high"] = round(target_high, 2) if target_high else None
         pred["analyst_count"] = int(analyst_count) if analyst_count else None
 
-    # --- Trend projection (linear regression on last 6 months, project 6 months) ---
+    # --- 2. Trend projection (Yahoo chart) ---
     trend_target = None
     if hist is not None and not hist.empty and len(hist) >= 60:
         close = hist["Close"].squeeze() if isinstance(hist["Close"], pd.DataFrame) else hist["Close"]
-        recent = close.dropna().iloc[-126:]  # ~6 months of trading days
+        recent = close.dropna().iloc[-126:]
         if len(recent) >= 30:
             x = np.arange(len(recent), dtype=float)
             y = recent.values.astype(float)
             slope, intercept = np.polyfit(x, y, 1)
-            future_x = len(recent) + 126  # project 126 trading days (~6 months)
+            future_x = len(recent) + 126
             trend_target = float(slope * future_x + intercept)
             if trend_target > 0:
                 pred["trend_6m"] = round(trend_target, 2)
                 pred["trend_direction"] = "up" if slope > 0 else "down"
 
-    # --- Combined estimate ---
-    estimates = [v for v in [analyst_target, trend_target] if v and v > 0]
-    if estimates:
-        if analyst_target and trend_target:
-            combined = analyst_target * 0.6 + trend_target * 0.4
-        else:
-            combined = estimates[0]
+    # --- 3. DCF intrinsic value (FMP) ---
+    dcf_target = None
+    if fmp_data:
+        dcf_list = fmp_data.get("dcf")
+        if dcf_list and isinstance(dcf_list, list) and len(dcf_list) > 0:
+            raw_dcf = dcf_list[0].get("dcf")
+            if raw_dcf and float(raw_dcf) > 0:
+                dcf_target = float(raw_dcf)
+                pred["dcf_value"] = round(dcf_target, 2)
+
+    # --- 4. Earnings momentum modifier (Finnhub) ---
+    # Consistent earnings beats suggest the actual trajectory will
+    # outperform consensus; misses suggest underperformance.
+    earnings_modifier = 0.0
+    if fh_data:
+        earnings = fh_data.get("earnings")
+        if earnings and len(earnings) >= 1:
+            recent_q = earnings[:4]
+            valid = [e for e in recent_q if e.get("surprisePercent") is not None]
+            if valid:
+                beats = sum(1 for e in valid if e["surprisePercent"] > 0)
+                avg_surprise = sum(e["surprisePercent"] for e in valid) / len(valid)
+                # +3% for 4/4 beats, +1.5% for 3/4, 0 for 2/4, -1.5% for 1/4, -3% for 0/4
+                earnings_modifier = (beats - 2) * 1.5
+                # Cap modifier magnitude at the avg surprise to avoid overshooting
+                if abs(avg_surprise) > 0:
+                    cap = min(abs(avg_surprise), 5.0)
+                    earnings_modifier = max(-cap, min(cap, earnings_modifier))
+                pred["earnings_momentum"] = round(earnings_modifier, 1)
+
+    # --- Weighted combination ---
+    # Assign base weights to each price-target signal and normalize
+    signals = []  # (price_target, weight)
+    if analyst_target and analyst_target > 0:
+        signals.append((analyst_target, 40))
+    if trend_target and trend_target > 0:
+        signals.append((trend_target, 25))
+    if dcf_target and dcf_target > 0:
+        signals.append((dcf_target, 20))
+
+    if signals:
+        total_weight = sum(w for _, w in signals)
+        combined = sum(price * w for price, w in signals) / total_weight
+
+        # Apply earnings momentum as a percentage nudge
+        if earnings_modifier != 0:
+            combined *= 1 + (earnings_modifier / 100)
+
         pred["combined_estimate"] = round(combined, 2)
-        if current_price > 0:
-            pred["upside_pct"] = round((combined - current_price) / current_price * 100, 1)
+        pred["upside_pct"] = round((combined - current_price) / current_price * 100, 1)
 
     return pred
 
@@ -694,12 +1004,19 @@ def analyze_stock(symbol: str) -> StockReport:
             val = _score_valuation(info)
             div = _score_dividends(info, symbol)
             tech = _score_technicals(hist)
-            pred = _predict_price(info, hist, price)
+
+            fh_data = _fetch_finnhub(symbol)
+            fmp_data = _fetch_fmp(symbol)
+
+            sent = _score_sentiment(fh_data)
+            fv = _score_fair_value(fmp_data, price)
+            pred = _predict_price(info, hist, price, fh_data, fmp_data)
 
             report = StockReport(
                 ticker=symbol, name=name, sector=sector, industry=industry,
                 price=price, currency=currency,
                 fundamentals=fund, valuation=val, dividends=div, technicals=tech,
+                sentiment=sent, fair_value=fv,
                 prediction=pred,
             )
             logger.info(f"{symbol}: score={report.overall_pct:.0f}% ({report.rating})")
@@ -897,6 +1214,7 @@ def _empty_report(symbol, error="Unknown error"):
         ticker=symbol, name=symbol, sector="N/A", industry="N/A",
         price=0, currency="USD",
         fundamentals=empty, valuation=empty, dividends=empty, technicals=empty,
+        sentiment=None, fair_value=None,
         error=error,
     )
 
@@ -908,6 +1226,15 @@ def _report_from_dict(d: dict) -> StockReport:
             max_score=section.get("max", 0),
             details=section.get("details", []),
         )
+
+    sent = None
+    if d.get("sentiment"):
+        sent = _to_breakdown(d["sentiment"])
+
+    fv = None
+    if d.get("fair_value"):
+        fv = _to_breakdown(d["fair_value"])
+
     return StockReport(
         ticker=d["ticker"], name=d["name"],
         sector=d.get("sector", "N/A"), industry=d.get("industry", "N/A"),
@@ -916,6 +1243,8 @@ def _report_from_dict(d: dict) -> StockReport:
         valuation=_to_breakdown(d.get("valuation", {})),
         dividends=_to_breakdown(d.get("dividends", {})),
         technicals=_to_breakdown(d.get("technicals", {})),
+        sentiment=sent,
+        fair_value=fv,
         prediction=d.get("prediction"),
         error=d.get("error"),
     )

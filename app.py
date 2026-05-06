@@ -2,11 +2,16 @@
 
 import os
 import re
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from analyzer import analyze_multiple, suggest_stocks, gamble_stocks, MARKETS
 from yahoo_api import get_quote_summary, extract_info, get_chart
+import finnhub_api
+import fmp_api
 import json
 from models import db, User, WatchlistItem, PortfolioItem, AnalysisHistory
 
@@ -117,6 +122,17 @@ def index():
 @login_required
 def dividends_page():
     return render_template("dividends.html")
+
+
+# --------------- Config API ---------------
+
+@app.route("/api/config")
+@login_required
+def api_config():
+    return jsonify({
+        "finnhub": finnhub_api.is_configured(),
+        "fmp": fmp_api.is_configured(),
+    })
 
 
 # --------------- Stock Analysis API ---------------
