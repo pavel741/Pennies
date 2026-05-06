@@ -1,60 +1,73 @@
-"""SQLAlchemy models for Pennies."""
+"""MongoDB-backed models for Pennies."""
 
+import os
 from datetime import datetime, timezone
-from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
+from pymongo import MongoClient
+from bson import ObjectId
 
-db = SQLAlchemy()
+_client = None
+_db = None
 
 
-class User(UserMixin, db.Model):
-    __tablename__ = "users"
+def get_db():
+    """Return the PyMongo database instance (lazy singleton)."""
+    global _client, _db
+    if _db is None:
+        uri = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/pennies")
+        _client = MongoClient(uri)
+        db_name = uri.rsplit("/", 1)[-1].split("?")[0] or "pennies"
+        _db = _client[db_name]
+        _db.users.create_index("email", unique=True)
+        _db.watchlist.create_index([("user_id", 1), ("ticker", 1)], unique=True)
+    return _db
 
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(255), nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
-    def set_password(self, password: str):
-        self.password_hash = generate_password_hash(password)
+class User(UserMixin):
+    """Wraps a MongoDB document from the `users` collection."""
+
+    def __init__(self, doc):
+        self._doc = doc
+
+    @property
+    def id(self):
+        return str(self._doc["_id"])
+
+    @property
+    def email(self):
+        return self._doc["email"]
+
+    @property
+    def password_hash(self):
+        return self._doc["password_hash"]
+
+    def get_id(self):
+        return str(self._doc["_id"])
 
     def check_password(self, password: str) -> bool:
         return check_password_hash(self.password_hash, password)
 
+    @staticmethod
+    def find_by_email(email: str):
+        doc = get_db().users.find_one({"email": email})
+        return User(doc) if doc else None
 
-class WatchlistItem(db.Model):
-    __tablename__ = "watchlist"
+    @staticmethod
+    def find_by_id(user_id: str):
+        try:
+            doc = get_db().users.find_one({"_id": ObjectId(user_id)})
+        except Exception:
+            return None
+        return User(doc) if doc else None
 
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    ticker = db.Column(db.String(20), nullable=False)
-    notes = db.Column(db.Text, default="")
-    added_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-
-    __table_args__ = (db.UniqueConstraint("user_id", "ticker"),)
-
-
-class PortfolioItem(db.Model):
-    __tablename__ = "portfolio"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    ticker = db.Column(db.String(20), nullable=False)
-    shares = db.Column(db.Float, nullable=False)
-    cost_basis = db.Column(db.Float, nullable=False)
-    added_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-
-
-class AnalysisHistory(db.Model):
-    __tablename__ = "analysis_history"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    source = db.Column(db.String(20), nullable=False)
-    tickers = db.Column(db.String(500), nullable=False)
-    top_ticker = db.Column(db.String(20))
-    top_score = db.Column(db.Float)
-    result_count = db.Column(db.Integer)
-    summary_json = db.Column(db.Text)
-    analyzed_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    @staticmethod
+    def create(email: str, password: str):
+        doc = {
+            "email": email,
+            "password_hash": generate_password_hash(password),
+            "created_at": datetime.now(timezone.utc),
+        }
+        result = get_db().users.insert_one(doc)
+        doc["_id"] = result.inserted_id
+        return User(doc)

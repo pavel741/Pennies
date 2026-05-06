@@ -13,18 +13,12 @@ from yahoo_api import get_quote_summary, extract_info, get_chart
 import finnhub_api
 import fmp_api
 import json
-from models import db, User, WatchlistItem, PortfolioItem, AnalysisHistory
+from datetime import datetime, timezone
+from bson import ObjectId
+from models import get_db, User
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "pennies-dev-secret-change-me")
-
-_db_url = os.environ.get("DATABASE_URL", "sqlite:///pennies.db")
-if _db_url.startswith("postgres://"):
-    _db_url = _db_url.replace("postgres://", "postgresql://", 1)
-app.config["SQLALCHEMY_DATABASE_URI"] = _db_url
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-
-db.init_app(app)
 
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
@@ -34,17 +28,10 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    return User.find_by_id(user_id)
 
 
-with app.app_context():
-    db.create_all()
-    with db.engine.connect() as conn:
-        from sqlalchemy import inspect, text
-        cols = [c["name"] for c in inspect(db.engine).get_columns("watchlist")]
-        if "notes" not in cols:
-            conn.execute(text("ALTER TABLE watchlist ADD COLUMN notes TEXT DEFAULT ''"))
-            conn.commit()
+print("[Pennies] DB engine: MongoDB Atlas")
 
 
 # --------------- Auth ---------------
@@ -57,7 +44,7 @@ def login():
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
-        user = User.query.filter_by(email=email).first()
+        user = User.find_by_email(email)
 
         if not user or not user.check_password(password):
             flash("Invalid email or password.", "error")
@@ -88,15 +75,11 @@ def register():
         if password != confirm:
             flash("Passwords do not match.", "error")
             return render_template("auth.html", tab="register", email=email)
-        if User.query.filter_by(email=email).first():
+        if User.find_by_email(email):
             flash("An account with this email already exists.", "error")
             return render_template("auth.html", tab="register", email=email)
 
-        user = User(email=email)
-        user.set_password(password)
-        db.session.add(user)
-        db.session.commit()
-
+        user = User.create(email, password)
         login_user(user, remember=True)
         return redirect(url_for("index"))
 
@@ -183,7 +166,6 @@ def analyze():
 
 
 def _save_history(results, source):
-    """Auto-save analysis results for the logged-in user."""
     if not current_user.is_authenticated:
         return
     valid = [r for r in results if not r.get("error")]
@@ -191,14 +173,14 @@ def _save_history(results, source):
         return
     tickers = ", ".join(r["ticker"] for r in valid[:20])
     top = max(valid, key=lambda r: r.get("overall_pct", 0))
-    entry = AnalysisHistory(
-        user_id=current_user.id,
-        source=source,
-        tickers=tickers,
-        top_ticker=top["ticker"],
-        top_score=top.get("overall_pct"),
-        result_count=len(valid),
-        summary_json=json.dumps([
+    doc = {
+        "user_id": current_user.id,
+        "source": source,
+        "tickers": tickers,
+        "top_ticker": top["ticker"],
+        "top_score": top.get("overall_pct"),
+        "result_count": len(valid),
+        "summary_json": json.dumps([
             {
                 "ticker": r["ticker"],
                 "score": r.get("overall_pct"),
@@ -212,9 +194,9 @@ def _save_history(results, source):
             }
             for r in valid[:30]
         ]),
-    )
-    db.session.add(entry)
-    db.session.commit()
+        "analyzed_at": datetime.now(timezone.utc),
+    }
+    get_db().history.insert_one(doc)
 
 
 # --------------- Dividend Calculator ---------------
@@ -309,20 +291,20 @@ def watchlist_page():
 @app.route("/api/watchlist")
 @login_required
 def watchlist_get():
-    items = WatchlistItem.query.filter_by(user_id=current_user.id)\
-        .order_by(WatchlistItem.added_at.desc()).all()
+    db = get_db()
+    items = list(db.watchlist.find({"user_id": current_user.id}).sort("added_at", -1))
     results = []
     for item in items:
         try:
-            summary = get_quote_summary(item.ticker)
+            summary = get_quote_summary(item["ticker"])
             info = extract_info(summary) if summary else {}
             price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
             mcap = info.get("marketCap")
             target = info.get("targetMeanPrice")
             upside = round((target / price - 1) * 100, 1) if target and price else None
             results.append({
-                "ticker": item.ticker,
-                "name": info.get("shortName") or info.get("longName") or item.ticker,
+                "ticker": item["ticker"],
+                "name": info.get("shortName") or info.get("longName") or item["ticker"],
                 "price": round(price, 2),
                 "currency": info.get("currency") or "USD",
                 "change_pct": info.get("regularMarketChangePercent"),
@@ -335,17 +317,17 @@ def watchlist_get():
                 "analyst_target": round(target, 2) if target else None,
                 "analyst_count": info.get("numberOfAnalystOpinions"),
                 "upside_pct": upside,
-                "notes": item.notes or "",
+                "notes": item.get("notes", ""),
             })
         except Exception:
             results.append({
-                "ticker": item.ticker, "name": item.ticker,
+                "ticker": item["ticker"], "name": item["ticker"],
                 "price": 0, "currency": "USD", "change_pct": None,
                 "sector": "N/A", "industry": "N/A",
                 "dividend_yield": None, "trailing_pe": None,
                 "forward_pe": None, "market_cap": None,
                 "analyst_target": None, "analyst_count": None,
-                "upside_pct": None, "notes": item.notes or "",
+                "upside_pct": None, "notes": item.get("notes", ""),
             })
     return jsonify({"items": results})
 
@@ -357,10 +339,15 @@ def watchlist_add():
     ticker = (data.get("ticker") or "").strip().upper()
     if not ticker:
         return jsonify({"error": "Ticker required."}), 400
-    if WatchlistItem.query.filter_by(user_id=current_user.id, ticker=ticker).first():
+    db = get_db()
+    if db.watchlist.find_one({"user_id": current_user.id, "ticker": ticker}):
         return jsonify({"status": "already_exists"})
-    db.session.add(WatchlistItem(user_id=current_user.id, ticker=ticker))
-    db.session.commit()
+    db.watchlist.insert_one({
+        "user_id": current_user.id,
+        "ticker": ticker,
+        "notes": "",
+        "added_at": datetime.now(timezone.utc),
+    })
     return jsonify({"status": "added"})
 
 
@@ -369,10 +356,7 @@ def watchlist_add():
 def watchlist_remove():
     data = request.get_json(silent=True) or {}
     ticker = (data.get("ticker") or "").strip().upper()
-    item = WatchlistItem.query.filter_by(user_id=current_user.id, ticker=ticker).first()
-    if item:
-        db.session.delete(item)
-        db.session.commit()
+    get_db().watchlist.delete_one({"user_id": current_user.id, "ticker": ticker})
     return jsonify({"status": "removed"})
 
 
@@ -382,11 +366,12 @@ def watchlist_note():
     data = request.get_json(silent=True) or {}
     ticker = (data.get("ticker") or "").strip().upper()
     notes = (data.get("notes") or "").strip()
-    item = WatchlistItem.query.filter_by(user_id=current_user.id, ticker=ticker).first()
-    if not item:
+    result = get_db().watchlist.update_one(
+        {"user_id": current_user.id, "ticker": ticker},
+        {"$set": {"notes": notes}},
+    )
+    if result.matched_count == 0:
         return jsonify({"error": "Not in watchlist."}), 404
-    item.notes = notes
-    db.session.commit()
     return jsonify({"status": "saved"})
 
 
@@ -401,8 +386,8 @@ def portfolio_page():
 @app.route("/api/portfolio")
 @login_required
 def portfolio_get():
-    items = PortfolioItem.query.filter_by(user_id=current_user.id)\
-        .order_by(PortfolioItem.added_at.desc()).all()
+    db = get_db()
+    items = list(db.portfolio.find({"user_id": current_user.id}).sort("added_at", -1))
     results = []
     total_cost = 0
     total_value = 0
@@ -411,15 +396,17 @@ def portfolio_get():
     for item in items:
         info = {}
         try:
-            summary = get_quote_summary(item.ticker)
+            summary = get_quote_summary(item["ticker"])
             info = extract_info(summary) if summary else {}
         except Exception:
             pass
         price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
         change_pct = info.get("regularMarketChangePercent")
         div_yield = info.get("dividendYield")
-        market_value = item.shares * price
-        cost_total = item.shares * item.cost_basis
+        shares = item["shares"]
+        cost_basis = item["cost_basis"]
+        market_value = shares * price
+        cost_total = shares * cost_basis
         pnl = market_value - cost_total
         pnl_pct = (pnl / cost_total * 100) if cost_total else 0
         day_pnl = market_value * change_pct / (100 + change_pct) if change_pct else 0
@@ -429,10 +416,10 @@ def portfolio_get():
         total_day_pnl += day_pnl
         total_annual_div += annual_div
         results.append({
-            "id": item.id,
-            "ticker": item.ticker,
-            "shares": round(item.shares, 4),
-            "cost_basis": round(item.cost_basis, 2),
+            "id": str(item["_id"]),
+            "ticker": item["ticker"],
+            "shares": round(shares, 4),
+            "cost_basis": round(cost_basis, 2),
             "current_price": round(price, 2),
             "market_value": round(market_value, 2),
             "pnl": round(pnl, 2),
@@ -476,11 +463,13 @@ def portfolio_add():
         return jsonify({"error": "Shares must be > 0."}), 400
     if not cost_basis or float(cost_basis) <= 0:
         return jsonify({"error": "Cost basis must be > 0."}), 400
-    db.session.add(PortfolioItem(
-        user_id=current_user.id, ticker=ticker,
-        shares=float(shares), cost_basis=float(cost_basis),
-    ))
-    db.session.commit()
+    get_db().portfolio.insert_one({
+        "user_id": current_user.id,
+        "ticker": ticker,
+        "shares": float(shares),
+        "cost_basis": float(cost_basis),
+        "added_at": datetime.now(timezone.utc),
+    })
     return jsonify({"status": "added"})
 
 
@@ -491,10 +480,10 @@ def portfolio_remove():
     item_id = data.get("id")
     if not item_id:
         return jsonify({"error": "Item ID required."}), 400
-    item = db.session.get(PortfolioItem, int(item_id))
-    if item and item.user_id == current_user.id:
-        db.session.delete(item)
-        db.session.commit()
+    try:
+        get_db().portfolio.delete_one({"_id": ObjectId(item_id), "user_id": current_user.id})
+    except Exception:
+        pass
     return jsonify({"status": "removed"})
 
 
@@ -505,20 +494,25 @@ def portfolio_edit():
     item_id = data.get("id")
     if not item_id:
         return jsonify({"error": "Item ID required."}), 400
-    item = db.session.get(PortfolioItem, int(item_id))
-    if not item or item.user_id != current_user.id:
+    try:
+        item = get_db().portfolio.find_one({"_id": ObjectId(item_id), "user_id": current_user.id})
+    except Exception:
         return jsonify({"error": "Position not found."}), 404
+    if not item:
+        return jsonify({"error": "Position not found."}), 404
+    updates = {}
     shares = data.get("shares")
     cost_basis = data.get("cost_basis")
     if shares is not None:
         if float(shares) <= 0:
             return jsonify({"error": "Shares must be > 0."}), 400
-        item.shares = float(shares)
+        updates["shares"] = float(shares)
     if cost_basis is not None:
         if float(cost_basis) <= 0:
             return jsonify({"error": "Cost basis must be > 0."}), 400
-        item.cost_basis = float(cost_basis)
-    db.session.commit()
+        updates["cost_basis"] = float(cost_basis)
+    if updates:
+        get_db().portfolio.update_one({"_id": ObjectId(item_id)}, {"$set": updates})
     return jsonify({"status": "updated"})
 
 
@@ -535,26 +529,29 @@ def history_page():
 def history_get():
     page = request.args.get("page", 1, type=int)
     per_page = 15
-    pagination = AnalysisHistory.query.filter_by(user_id=current_user.id)\
-        .order_by(AnalysisHistory.analyzed_at.desc())\
-        .paginate(page=page, per_page=per_page, error_out=False)
+    db = get_db()
+    query = {"user_id": current_user.id}
+    total = db.history.count_documents(query)
+    pages = max(1, (total + per_page - 1) // per_page)
+    skip = (page - 1) * per_page
+    docs = list(db.history.find(query).sort("analyzed_at", -1).skip(skip).limit(per_page))
     items = []
-    for h in pagination.items:
+    for h in docs:
         items.append({
-            "id": h.id,
-            "source": h.source,
-            "tickers": h.tickers,
-            "top_ticker": h.top_ticker,
-            "top_score": h.top_score,
-            "result_count": h.result_count,
-            "summary": json.loads(h.summary_json) if h.summary_json else [],
-            "analyzed_at": h.analyzed_at.strftime("%Y-%m-%d %H:%M") if h.analyzed_at else None,
+            "id": str(h["_id"]),
+            "source": h.get("source"),
+            "tickers": h.get("tickers"),
+            "top_ticker": h.get("top_ticker"),
+            "top_score": h.get("top_score"),
+            "result_count": h.get("result_count"),
+            "summary": json.loads(h["summary_json"]) if h.get("summary_json") else [],
+            "analyzed_at": h["analyzed_at"].strftime("%Y-%m-%d %H:%M") if h.get("analyzed_at") else None,
         })
     return jsonify({
         "items": items,
-        "page": pagination.page,
-        "pages": pagination.pages,
-        "total": pagination.total,
+        "page": page,
+        "pages": pages,
+        "total": total,
     })
 
 
@@ -565,22 +562,22 @@ def history_delete():
     item_id = data.get("id")
     if not item_id:
         return jsonify({"error": "ID required."}), 400
-    item = db.session.get(AnalysisHistory, int(item_id))
-    if item and item.user_id == current_user.id:
-        db.session.delete(item)
-        db.session.commit()
+    try:
+        get_db().history.delete_one({"_id": ObjectId(item_id), "user_id": current_user.id})
+    except Exception:
+        pass
     return jsonify({"status": "deleted"})
 
 
 @app.route("/api/compare", methods=["POST"])
 @login_required
 def compare_stocks():
-    from datetime import datetime, timedelta
+    from datetime import timedelta
     import pandas as pd
 
     data = request.get_json(silent=True) or {}
     tickers = data.get("tickers") or []
-    as_of = data.get("as_of")  # "YYYY-MM-DD HH:MM" from the run date
+    as_of = data.get("as_of")
     if not tickers:
         return jsonify({"error": "Select at least 1 stock."}), 400
     if len(tickers) > 6:

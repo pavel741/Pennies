@@ -1,9 +1,3 @@
-databases:
-  - name: pennies-db
-    plan: free
-    databaseName: pennies
-    user: pennies
-
 services:
   - type: web
     name: pennies
@@ -12,14 +6,12 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: pennies-db
-          property: connectionString
       - key: SECRET_KEY
         generateValue: true
       - key: PYTHON_VERSION
         value: "3.11.9"
+      - key: MONGODB_URI
+        sync: false
       - key: FINNHUB_API_KEY
         sync: false
       - key: FMP_API_KEY
