@@ -69,6 +69,9 @@ print("[Pennies] DB engine: MongoDB Atlas", flush=True)
 
 @app.errorhandler(Exception)
 def handle_exception(e):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
     import traceback, sys
     tb = traceback.format_exc()
     print(f"[Pennies ERROR] {tb}", file=sys.stderr, flush=True)
