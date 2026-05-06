@@ -1,22 +1,29 @@
 """MongoDB-backed models for Pennies."""
 
 import os
+import logging
 from datetime import datetime, timezone
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from pymongo import MongoClient
 from bson import ObjectId
 
+logger = logging.getLogger(__name__)
+
 _client = None
 _db = None
 
 
 def get_db():
-    """Return the PyMongo database instance (lazy singleton)."""
+    """Return the PyMongo database instance (lazy singleton, fork-safe)."""
     global _client, _db
     if _db is None:
         uri = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/pennies")
-        _client = MongoClient(uri)
+        masked = uri[:30] + "***" if len(uri) > 30 else uri
+        logger.info(f"Connecting to MongoDB: {masked}")
+        _client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        _client.admin.command("ping")
+        logger.info("MongoDB connection OK")
         db_name = uri.rsplit("/", 1)[-1].split("?")[0] or "pennies"
         _db = _client[db_name]
         _db.users.create_index("email", unique=True)
