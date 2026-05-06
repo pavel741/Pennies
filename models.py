@@ -11,9 +11,6 @@ from bson import ObjectId
 logger = logging.getLogger(__name__)
 
 _MONGO_URI = os.environ.get("MONGODB_URI") or ""
-print(f"[Pennies] MONGODB_URI loaded at import: set={bool(_MONGO_URI)}, len={len(_MONGO_URI)}, "
-      f"preview={_MONGO_URI[:35]}***" if _MONGO_URI else "[Pennies] MONGODB_URI loaded at import: NOT SET",
-      flush=True)
 
 _client = None
 _db = None
@@ -24,14 +21,9 @@ def get_db():
     global _client, _db
     if _db is None:
         uri = _MONGO_URI or os.environ.get("MONGODB_URI") or "mongodb://localhost:27017/pennies"
-        if "localhost" in uri:
-            print(f"[Pennies WARNING] Using localhost fallback! MONGODB_URI env={os.environ.get('MONGODB_URI')!r}",
-                  flush=True)
-        masked = uri[:35] + "***" if len(uri) > 35 else uri
-        print(f"[Pennies] Connecting to: {masked}", flush=True)
         _client = MongoClient(uri, serverSelectionTimeoutMS=5000)
         _client.admin.command("ping")
-        print("[Pennies] MongoDB connection OK", flush=True)
+        logger.info("MongoDB connection OK")
         db_name = uri.rsplit("/", 1)[-1].split("?")[0] or "pennies"
         _db = _client[db_name]
         _db.users.create_index("email", unique=True)

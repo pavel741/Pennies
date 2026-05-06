@@ -47,36 +47,13 @@ def health():
         return jsonify({"status": "error", "db": str(e)}), 500
 
 
-@app.route("/debug/env")
-def debug_env():
-    """Show what the worker process actually sees."""
-    import os as _os
-    uri = _os.environ.get("MONGODB_URI")
-    masked = (uri[:30] + "***") if uri and len(uri) > 30 else repr(uri)
-    from models import _client, _db
-    return jsonify({
-        "MONGODB_URI_set": uri is not None,
-        "MONGODB_URI_preview": masked,
-        "MONGODB_URI_length": len(uri) if uri else 0,
-        "singleton_db_is_none": _db is None,
-        "singleton_client_is_none": _client is None,
-        "pid": _os.getpid(),
-    })
-
-
-print("[Pennies] DB engine: MongoDB Atlas", flush=True)
-
-
 @app.errorhandler(Exception)
 def handle_exception(e):
     from werkzeug.exceptions import HTTPException
     if isinstance(e, HTTPException):
         return e
-    import traceback, sys
-    tb = traceback.format_exc()
-    print(f"[Pennies ERROR] {tb}", file=sys.stderr, flush=True)
     app.logger.error(f"Unhandled exception: {e}", exc_info=True)
-    return f"Internal Server Error: {e}", 500
+    return "Internal Server Error", 500
 
 
 # --------------- Auth ---------------
