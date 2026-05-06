@@ -28,7 +28,7 @@ def _get_session() -> tuple[requests.Session, str]:
     if _session and _crumb:
         return _session, _crumb
 
-    max_retries = 5
+    max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
             s = requests.Session()
@@ -45,12 +45,12 @@ def _get_session() -> tuple[requests.Session, str]:
             return s, crumb
         except requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code == 429:
-                wait = 2 ** attempt
+                wait = min(2 ** attempt, 8)
                 logger.warning(f"Crumb request rate-limited (attempt {attempt}/{max_retries}), waiting {wait}s")
                 time.sleep(wait)
             else:
                 raise
-    raise RuntimeError("Could not acquire Yahoo crumb after retries — rate-limited")
+    raise RuntimeError("Yahoo Finance rate limit — please try again in a few minutes")
 
 
 def reset_session():

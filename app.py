@@ -174,7 +174,10 @@ def suggest():
     if max_price is not None:
         max_price = float(max_price)
     markets = data.get("markets") or ["us"]
-    results = suggest_stocks(top_n, max_price=max_price, markets=markets)
+    try:
+        results = suggest_stocks(top_n, max_price=max_price, markets=markets)
+    except RuntimeError as e:
+        return jsonify({"error": str(e), "results": [], "markets": MARKETS}), 200
     _save_history(results, "suggest")
     return jsonify({"results": results, "markets": MARKETS})
 
@@ -188,7 +191,10 @@ def gamble():
     if max_price is not None:
         max_price = float(max_price)
     markets = data.get("markets") or ["us"]
-    results = gamble_stocks(top_n, max_price=max_price, markets=markets)
+    try:
+        results = gamble_stocks(top_n, max_price=max_price, markets=markets)
+    except RuntimeError as e:
+        return jsonify({"error": str(e), "results": [], "markets": MARKETS}), 200
     _save_history(results, "gamble")
     return jsonify({"results": results, "markets": MARKETS})
 
