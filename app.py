@@ -47,13 +47,53 @@ def health():
         return jsonify({"status": "error", "db": str(e)}), 500
 
 
-print("[Pennies] DB engine: MongoDB Atlas")
+@app.route("/debug/test-register")
+def debug_test_register():
+    """Temporary endpoint to diagnose registration errors."""
+    import traceback, io
+    buf = io.StringIO()
+    try:
+        db = get_db()
+        buf.write("1. get_db() OK\n")
+        from werkzeug.security import generate_password_hash
+        pw_hash = generate_password_hash("testpass123")
+        buf.write(f"2. password hash OK: {pw_hash[:20]}...\n")
+        count = db.users.count_documents({})
+        buf.write(f"3. users collection count: {count}\n")
+        test_email = "debug-test@example.com"
+        existing = db.users.find_one({"email": test_email})
+        buf.write(f"4. find_one OK, existing={existing is not None}\n")
+        if existing:
+            db.users.delete_one({"email": test_email})
+            buf.write("5. cleaned up old test user\n")
+        result = db.users.insert_one({
+            "email": test_email,
+            "password_hash": pw_hash,
+            "created_at": datetime.now(timezone.utc),
+        })
+        buf.write(f"6. insert_one OK, id={result.inserted_id}\n")
+        user_doc = db.users.find_one({"_id": result.inserted_id})
+        buf.write(f"7. re-read OK, email={user_doc['email']}\n")
+        user = User(user_doc)
+        buf.write(f"8. User wrapper OK, id={user.id}, email={user.email}\n")
+        db.users.delete_one({"_id": result.inserted_id})
+        buf.write("9. cleanup OK\n")
+        buf.write("\nAll steps passed!")
+    except Exception:
+        buf.write(f"\nERROR:\n{traceback.format_exc()}")
+    return buf.getvalue(), 200, {"Content-Type": "text/plain"}
+
+
+print("[Pennies] DB engine: MongoDB Atlas", flush=True)
 
 
 @app.errorhandler(Exception)
 def handle_exception(e):
+    import traceback, sys
+    tb = traceback.format_exc()
+    print(f"[Pennies ERROR] {tb}", file=sys.stderr, flush=True)
     app.logger.error(f"Unhandled exception: {e}", exc_info=True)
-    return "Internal Server Error", 500
+    return f"Internal Server Error: {e}", 500
 
 
 # --------------- Auth ---------------
