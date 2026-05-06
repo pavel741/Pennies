@@ -3,7 +3,7 @@ services:
     name: pennies
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --preload --log-level info
+    startCommand: gunicorn app:app --log-level info
     envVars:
       - key: SECRET_KEY
         generateValue: true
