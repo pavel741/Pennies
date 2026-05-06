@@ -1,10 +1,22 @@
+databases:
+  - name: pennies-db
+    plan: free
+    databaseName: pennies
+    user: pennies
+
 services:
   - type: web
     name: pennies
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 2
+    startCommand: gunicorn app:app
     envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pennies-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
       - key: PYTHON_VERSION
-        value: 3.11.9
+        value: "3.11.9"

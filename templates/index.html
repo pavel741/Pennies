@@ -481,6 +481,22 @@
   .export-btn:hover { background: var(--surface2); border-color: var(--accent); }
   .export-btn svg { width: 18px; height: 18px; fill: currentColor; }
 
+  /* ---- Nav bar ---- */
+  .nav { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .nav-brand { font-size: 1.15rem; font-weight: 800; background: linear-gradient(135deg, var(--accent2), var(--green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; text-decoration: none; }
+  .nav-links { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .nav-links a { color: var(--text2); text-decoration: none; font-size: .88rem; font-weight: 500; }
+  .nav-links a:hover { color: var(--accent2); }
+  .nav-links a.active { color: var(--accent2); }
+  .nav-logout { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); }
+  .nav-logout:hover { border-color: var(--accent); background: var(--surface2); }
+
+  /* ---- Card action buttons ---- */
+  .card-actions { display: flex; gap: 8px; padding: 10px 22px; border-top: 1px solid var(--border); }
+  .card-action-btn { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); font-size: .82rem; font-weight: 500; cursor: pointer; transition: all .2s; }
+  .card-action-btn:hover { border-color: var(--accent); color: var(--accent2); }
+  .card-action-btn.added { border-color: var(--green); color: var(--green); cursor: default; }
+
   @media (max-width: 600px) {
     .hero h1 { font-size: 2rem; }
     .cta-btn { padding: 16px 32px; font-size: 1.1rem; }
@@ -490,6 +506,17 @@
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
+  <nav class="nav">
+    <a href="/" class="nav-brand">Pennies</a>
+    <div class="nav-links">
+      <a href="/" class="active">Suggestions</a>
+      <a href="/dividends">Dividends</a>
+      <a href="/watchlist">Watchlist</a>
+      <a href="/portfolio">Portfolio</a>
+      <a href="/history">History</a>
+      <a href="/logout" class="nav-logout">Logout</a>
+    </div>
+  </nav>
 
   <div class="hero">
     <h1>Pennies</h1>
@@ -527,8 +554,6 @@
 
   <div class="lookup-toggle">
     <button onclick="toggleLookup()">or look up specific tickers</button>
-    <span style="margin:0 10px;color:var(--border)">|</span>
-    <a href="/dividends" style="color:var(--text2);font-size:.9rem;text-decoration:underline;text-underline-offset:3px">Dividend Calculator</a>
   </div>
 
   <form class="lookup-area" id="lookupArea" onsubmit="runLookup(event)">
@@ -835,9 +860,23 @@ function renderResults(results) {
           ${buildSection('Dividends', r.dividends)}
           ${buildSection('Technicals', r.technicals)}
         </div>
+      </div>
+      <div class="card-actions">
+        <button class="card-action-btn" onclick="event.stopPropagation();addToWatchlist('${r.ticker}',this)">+ Watchlist</button>
       </div>`;
     resultsEl.appendChild(card);
   });
+}
+
+async function addToWatchlist(ticker, btn) {
+  const resp = await fetch('/api/watchlist/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticker }),
+  });
+  const data = await resp.json();
+  btn.textContent = data.status === 'added' ? 'Added' : 'Already saved';
+  btn.classList.add('added');
 }
 
 function exportPDF() {

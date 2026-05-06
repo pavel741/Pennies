@@ -163,15 +163,15 @@ def get_dividends(symbol: str) -> pd.Series:
     return df["amount"]
 
 
-def screen_stocks(
+_SCREENER_BATCH = 4
+
+
+def _screen_batch(
     exchanges: list[str],
     max_price: float = None,
     size: int = 250,
 ) -> list[dict]:
-    """
-    Query the Yahoo Finance screener API to get equities on the given exchanges.
-    Returns a list of quote dicts with symbol, price, P/E, dividend yield, etc.
-    """
+    """Run a single screener request for the given exchanges."""
     s, crumb = _get_session()
 
     exchange_filters = [
@@ -230,6 +230,38 @@ def screen_stocks(
         if offset >= total or offset >= size or not quotes:
             break
 
+    return all_quotes
+
+
+def screen_stocks(
+    exchanges: list[str],
+    max_price: float = None,
+    size: int = 250,
+) -> list[dict]:
+    """
+    Query the Yahoo Finance screener API to get equities on the given exchanges.
+    Batches requests to avoid Yahoo 500 errors when too many exchanges are passed.
+    """
+    if len(exchanges) <= _SCREENER_BATCH:
+        results = _screen_batch(exchanges, max_price, size)
+        logger.info(f"Screener returned {len(results)} stocks for exchanges {exchanges}")
+        return results
+
+    all_quotes = []
+    seen = set()
+    for i in range(0, len(exchanges), _SCREENER_BATCH):
+        batch = exchanges[i:i + _SCREENER_BATCH]
+        per_batch = max(size // ((len(exchanges) + _SCREENER_BATCH - 1) // _SCREENER_BATCH), 100)
+        try:
+            quotes = _screen_batch(batch, max_price, per_batch)
+            for q in quotes:
+                sym = q.get("symbol")
+                if sym and sym not in seen:
+                    seen.add(sym)
+                    all_quotes.append(q)
+        except Exception as e:
+            logger.warning(f"Screener batch {batch} failed: {e}")
+
     logger.info(f"Screener returned {len(all_quotes)} stocks for exchanges {exchanges}")
     return all_quotes
 
@@ -271,6 +303,7 @@ def extract_info(summary: dict) -> dict:
         "targetLowPrice": _raw_val(fin, "targetLowPrice"),
         "numberOfAnalystOpinions": _raw_val(fin, "numberOfAnalystOpinions"),
         "recommendationMean": _raw_val(fin, "recommendationMean"),
+        "regularMarketChangePercent": _raw_val(price, "regularMarketChangePercent"),
         "sector": price.get("sector") if isinstance(price.get("sector"), str) else "N/A",
         "industry": price.get("industry") if isinstance(price.get("industry"), str) else "N/A",
     }

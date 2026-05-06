@@ -28,17 +28,14 @@
     min-height: 100vh;
   }
 
-  .nav {
-    padding: 16px 24px;
-    border-bottom: 1px solid var(--border);
-  }
-  .nav a {
-    color: var(--accent2);
-    text-decoration: none;
-    font-size: .9rem;
-    font-weight: 500;
-  }
-  .nav a:hover { text-decoration: underline; }
+  .nav { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .nav-brand { font-size: 1.15rem; font-weight: 800; background: linear-gradient(135deg, var(--accent2), var(--green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; text-decoration: none; }
+  .nav-links { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .nav-links a { color: var(--text2); text-decoration: none; font-size: .88rem; font-weight: 500; }
+  .nav-links a:hover { color: var(--accent2); }
+  .nav-links a.active { color: var(--accent2); }
+  .nav-logout { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); }
+  .nav-logout:hover { border-color: var(--accent); background: var(--surface2); }
 
   .hero {
     text-align: center;
@@ -234,9 +231,17 @@
 </head>
 <body>
 
-  <div class="nav">
-    <a href="/">&larr; Back to Stock Suggestions</a>
-  </div>
+  <nav class="nav">
+    <a href="/" class="nav-brand">Pennies</a>
+    <div class="nav-links">
+      <a href="/">Suggestions</a>
+      <a href="/dividends" class="active">Dividends</a>
+      <a href="/watchlist">Watchlist</a>
+      <a href="/portfolio">Portfolio</a>
+      <a href="/history">History</a>
+      <a href="/logout" class="nav-logout">Logout</a>
+    </div>
+  </nav>
 
   <div class="hero">
     <h1>Dividend Calculator</h1>

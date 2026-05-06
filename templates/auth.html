@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pennies — Welcome</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #232734;
+    --border: #2e3348; --text: #e4e6f0; --text2: #9ca0b4;
+    --accent: #6c5ce7; --accent2: #a29bfe; --green: #00cec9;
+    --red: #ff6b6b; --radius: 14px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh;
+    display: flex; justify-content: center; align-items: center;
+  }
+
+  .auth-wrap {
+    width: 100%; max-width: 420px; margin: 20px;
+  }
+
+  .brand {
+    text-align: center; margin-bottom: 32px;
+  }
+  .brand h1 {
+    font-size: 2.8rem; font-weight: 800;
+    background: linear-gradient(135deg, var(--accent2), var(--green));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .brand p { color: var(--text2); font-size: .95rem; margin-top: 6px; }
+
+  .auth-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+
+  .tabs {
+    display: flex; border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    flex: 1; padding: 14px; text-align: center; font-size: .95rem;
+    font-weight: 600; cursor: pointer; background: none; border: none;
+    color: var(--text2); transition: all .2s;
+    border-bottom: 2px solid transparent;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--accent2); border-bottom-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .form-body { padding: 28px; }
+
+  .field { margin-bottom: 18px; }
+  .field label {
+    display: block; font-size: .8rem; font-weight: 600; color: var(--text2);
+    margin-bottom: 6px; text-transform: uppercase; letter-spacing: .4px;
+  }
+  .field input {
+    width: 100%; padding: 12px 16px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text); font-size: 1rem; outline: none; transition: border .2s;
+  }
+  .field input:focus { border-color: var(--accent); }
+  .field input::placeholder { color: var(--text2); opacity: .5; }
+
+  .submit-btn {
+    width: 100%; padding: 14px; border-radius: 12px; border: none;
+    background: linear-gradient(135deg, var(--accent), #7f6cf0);
+    color: #fff; font-size: 1.05rem; font-weight: 700; cursor: pointer;
+    transition: transform .15s, box-shadow .2s;
+    box-shadow: 0 4px 20px rgba(108,92,231,.3);
+    margin-top: 6px;
+  }
+  .submit-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 28px rgba(108,92,231,.45); }
+
+  .flash {
+    padding: 10px 14px; border-radius: 8px; margin-bottom: 16px;
+    font-size: .88rem; background: rgba(255,107,107,.12); color: var(--red);
+  }
+
+  .form-panel { display: none; }
+  .form-panel.active { display: block; }
+</style>
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="brand">
+      <h1>Pennies</h1>
+      <p>Smart stock suggestions at your fingertips</p>
+    </div>
+
+    <div class="auth-card">
+      <div class="tabs">
+        <button class="tab {{ 'active' if tab == 'login' else '' }}" onclick="switchTab('login')">Log In</button>
+        <button class="tab {{ 'active' if tab == 'register' else '' }}" onclick="switchTab('register')">Register</button>
+      </div>
+
+      <!-- Login form -->
+      <div class="form-panel {{ 'active' if tab == 'login' else '' }}" id="panel-login">
+        <form class="form-body" method="POST" action="/login">
+          {% if tab == 'login' %}
+          {% with messages = get_flashed_messages(with_categories=true) %}
+          {% for cat, msg in messages %}
+          <div class="flash">{{ msg }}</div>
+          {% endfor %}
+          {% endwith %}
+          {% endif %}
+
+          <div class="field">
+            <label>Email</label>
+            <input type="email" name="email" value="{{ email|default('') }}" required autofocus placeholder="you@example.com">
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <input type="password" name="password" required placeholder="Your password">
+          </div>
+          <button class="submit-btn" type="submit">Log In</button>
+        </form>
+      </div>
+
+      <!-- Register form -->
+      <div class="form-panel {{ 'active' if tab == 'register' else '' }}" id="panel-register">
+        <form class="form-body" method="POST" action="/register">
+          {% if tab == 'register' %}
+          {% with messages = get_flashed_messages(with_categories=true) %}
+          {% for cat, msg in messages %}
+          <div class="flash">{{ msg }}</div>
+          {% endfor %}
+          {% endwith %}
+          {% endif %}
+
+          <div class="field">
+            <label>Email</label>
+            <input type="email" name="email" value="{{ email|default('') }}" required placeholder="you@example.com">
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <input type="password" name="password" required minlength="8" placeholder="Min 8 characters">
+          </div>
+          <div class="field">
+            <label>Confirm Password</label>
+            <input type="password" name="confirm" required minlength="8" placeholder="Re-enter password">
+          </div>
+          <button class="submit-btn" type="submit">Create Account</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+<script>
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.form-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('.tab:nth-child(' + (tab === 'login' ? '1' : '2') + ')').classList.add('active');
+  document.getElementById('panel-' + tab).classList.add('active');
+}
+</script>
+</body>
+</html>

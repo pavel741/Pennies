@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pennies — Portfolio</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #232734;
+    --border: #2e3348; --text: #e4e6f0; --text2: #9ca0b4;
+    --accent: #6c5ce7; --accent2: #a29bfe; --green: #00cec9;
+    --green-bg: rgba(0,206,201,.12);
+    --red: #ff6b6b; --red-bg: rgba(255,107,107,.12);
+    --yellow: #ffc048; --yellow-bg: rgba(255,192,72,.12);
+    --radius: 14px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .nav { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .nav-brand { font-size: 1.15rem; font-weight: 800; background: linear-gradient(135deg, var(--accent2), var(--green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; text-decoration: none; }
+  .nav-links { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .nav-links a { color: var(--text2); text-decoration: none; font-size: .88rem; font-weight: 500; }
+  .nav-links a:hover { color: var(--accent2); }
+  .nav-links a.active { color: var(--accent2); }
+  .nav-logout { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border); }
+  .nav-logout:hover { border-color: var(--accent); background: var(--surface2); }
+
+  .hero { text-align: center; padding: 48px 20px 16px; }
+  .hero h1 { font-size: 2.2rem; font-weight: 800; background: linear-gradient(135deg, var(--accent2), var(--green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .hero p { color: var(--text2); margin-top: 8px; font-size: .95rem; }
+
+  /* Summary row */
+  .summary-row { max-width: 1100px; margin: 24px auto 10px; padding: 0 20px; display: none; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .summary-row.show { display: flex; }
+  .summary-card { flex: 1; min-width: 130px; padding: 14px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; text-align: center; }
+  .summary-card .label { font-size: .7rem; text-transform: uppercase; letter-spacing: .4px; color: var(--text2); margin-bottom: 3px; }
+  .summary-card .val { font-size: 1.15rem; font-weight: 800; }
+  .up { color: var(--green); }
+  .down { color: var(--red); }
+
+  /* Allocation section */
+  .alloc-section { max-width: 1100px; margin: 16px auto 10px; padding: 0 20px; display: none; gap: 24px; align-items: center; }
+  .alloc-section.show { display: flex; }
+  .donut-wrap { position: relative; width: 180px; height: 180px; flex-shrink: 0; }
+  .donut-wrap svg { width: 180px; height: 180px; transform: rotate(-90deg); }
+  .donut-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; }
+  .donut-center .dc-val { font-size: 1.1rem; font-weight: 800; }
+  .donut-center .dc-label { font-size: .68rem; color: var(--text2); text-transform: uppercase; letter-spacing: .3px; }
+  .alloc-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; flex: 1; }
+  .alloc-item { display: flex; align-items: center; gap: 8px; font-size: .85rem; }
+  .alloc-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .alloc-pct { color: var(--text2); font-size: .78rem; }
+
+  .add-form { max-width: 700px; margin: 16px auto; padding: 0 20px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .add-form input { flex: 1; min-width: 80px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: .95rem; outline: none; }
+  .add-form input:focus { border-color: var(--accent); }
+  .add-form button { padding: 12px 22px; border-radius: 10px; border: none; background: linear-gradient(135deg, var(--accent), #7f6cf0); color: #fff; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .add-form button:hover { opacity: .9; }
+
+  .status { text-align: center; color: var(--text2); font-size: .9rem; min-height: 24px; margin: 10px 0; }
+  .status.error { color: var(--red); }
+
+  /* Table */
+  .table-wrap { max-width: 1100px; margin: 0 auto; padding: 0 20px 60px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 11px 12px; text-align: left; font-size: .88rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { font-size: .74rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--text2); background: var(--surface); position: sticky; top: 0; cursor: pointer; user-select: none; transition: color .2s; }
+  th:hover { color: var(--accent2); }
+  th .sort-arrow { font-size: .65rem; margin-left: 3px; opacity: .4; }
+  th.sorted .sort-arrow { opacity: 1; color: var(--accent2); }
+  td { background: var(--bg); }
+  .ticker-cell { font-weight: 700; letter-spacing: .5px; }
+  .sector-cell { font-size: .78rem; color: var(--text2); }
+
+  /* Action buttons in table */
+  .row-actions { display: flex; gap: 6px; }
+  .row-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: none; color: var(--text2); font-size: .76rem; cursor: pointer; transition: all .15s; white-space: nowrap; }
+  .row-btn:hover { border-color: var(--accent); color: var(--accent2); }
+  .row-btn.danger { color: var(--red); }
+  .row-btn.danger:hover { background: var(--red-bg); border-color: var(--red); }
+  .row-btn:disabled { opacity: .5; cursor: wait; }
+
+  /* Inline analysis */
+  .analysis-row td { background: var(--surface); padding: 14px 16px; }
+  .analysis-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .analysis-score { font-size: 1.2rem; font-weight: 800; }
+  .analysis-rating { padding: 3px 10px; border-radius: 8px; font-size: .82rem; font-weight: 600; }
+  .analysis-rating.strong-buy, .analysis-rating.buy { background: var(--green-bg); color: var(--green); }
+  .analysis-rating.hold { background: var(--yellow-bg); color: var(--yellow); }
+  .analysis-rating.underperform, .analysis-rating.sell { background: var(--red-bg); color: var(--red); }
+  .analysis-grid { display: flex; gap: 8px; flex-wrap: wrap; }
+  .analysis-section { padding: 8px 12px; background: var(--surface2); border-radius: 8px; min-width: 140px; flex: 1; }
+  .analysis-section .as-title { font-size: .68rem; text-transform: uppercase; letter-spacing: .3px; color: var(--accent2); font-weight: 600; margin-bottom: 3px; }
+  .analysis-section .as-score { font-size: .88rem; font-weight: 700; }
+  .as-bar { width: 100%; height: 3px; background: var(--border); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+  .as-bar-fill { height: 100%; border-radius: 2px; }
+
+  /* Modal */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; justify-content: center; align-items: center; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; max-width: 380px; width: 90%; }
+  .modal h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 16px; }
+  .modal .field { margin-bottom: 14px; }
+  .modal .field label { display: block; font-size: .78rem; font-weight: 600; color: var(--text2); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .3px; }
+  .modal .field input { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); font-size: .95rem; outline: none; }
+  .modal .field input:focus { border-color: var(--accent); }
+  .modal-btns { display: flex; gap: 10px; margin-top: 18px; }
+  .modal-btns button { flex: 1; padding: 10px; border-radius: 10px; border: none; font-weight: 600; font-size: .95rem; cursor: pointer; }
+  .modal-btns .btn-primary { background: linear-gradient(135deg, var(--accent), #7f6cf0); color: #fff; }
+  .modal-btns .btn-cancel { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+
+  .empty { text-align: center; padding: 40px 20px; color: var(--text2); font-size: 1rem; }
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2.5px solid var(--border); border-top-color: var(--accent2); border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 700px) {
+    .alloc-section { flex-direction: column; align-items: center; }
+    th, td { padding: 8px 6px; font-size: .82rem; }
+  }
+</style>
+</head>
+<body>
+  <nav class="nav">
+    <a href="/" class="nav-brand">Pennies</a>
+    <div class="nav-links">
+      <a href="/">Suggestions</a>
+      <a href="/dividends">Dividends</a>
+      <a href="/watchlist">Watchlist</a>
+      <a href="/portfolio" class="active">Portfolio</a>
+      <a href="/history">History</a>
+      <a href="/logout" class="nav-logout">Logout</a>
+    </div>
+  </nav>
+
+  <div class="hero">
+    <h1>Portfolio</h1>
+    <p>Track your holdings with live prices, P&amp;L, and dividends.</p>
+  </div>
+
+  <div class="add-form">
+    <input type="text" id="addTicker" placeholder="Ticker" style="max-width:100px">
+    <input type="number" id="addShares" placeholder="Shares" min="0.0001" step="any" style="max-width:100px">
+    <input type="number" id="addCost" placeholder="Avg Cost ($)" min="0.01" step="any" style="max-width:120px">
+    <button onclick="addPosition()">Add Position</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="summary-row" id="summaryRow">
+    <div class="summary-card"><div class="label">Total Value</div><div class="val" id="totalValue">-</div></div>
+    <div class="summary-card"><div class="label">Total Cost</div><div class="val" id="totalCost">-</div></div>
+    <div class="summary-card"><div class="label">Total P&amp;L</div><div class="val" id="totalPnl">-</div></div>
+    <div class="summary-card"><div class="label">Today's P&amp;L</div><div class="val" id="dayPnl">-</div></div>
+    <div class="summary-card"><div class="label">Annual Dividends</div><div class="val" id="annualDiv">-</div></div>
+    <div class="summary-card"><div class="label">Best Performer</div><div class="val" id="bestPerf">-</div></div>
+    <div class="summary-card"><div class="label">Worst Performer</div><div class="val" id="worstPerf">-</div></div>
+  </div>
+
+  <div class="alloc-section" id="allocSection">
+    <div class="donut-wrap" id="donutWrap">
+      <svg viewBox="0 0 180 180" id="donutSvg"></svg>
+      <div class="donut-center">
+        <div class="dc-val" id="donutVal">-</div>
+        <div class="dc-label">Positions</div>
+      </div>
+    </div>
+    <div class="alloc-legend" id="allocLegend"></div>
+  </div>
+
+  <div class="table-wrap">
+    <table id="table" style="display:none">
+      <thead><tr>
+        <th data-key="ticker">Ticker <span class="sort-arrow">&#9650;</span></th>
+        <th data-key="sector">Sector <span class="sort-arrow">&#9650;</span></th>
+        <th data-key="shares">Shares <span class="sort-arrow">&#9650;</span></th>
+        <th data-key="cost_basis">Avg Cost <span class="sort-arrow">&#9650;</span></th>
+        <th data-key="current_price">Price <span class="sort-arrow">&#9650;</span></th>
+        <th data-key="change_pct">Today <span class="sort-arrow">&#9650;</span></th>
+        <th data-key="market_value">Value <span class="sort-arrow">&#9650;</span></th>
+        <th data-key="pnl">P&amp;L <span class="sort-arrow">&#9650;</span></th>
+        <th data-key="pnl_pct">P&amp;L % <span class="sort-arrow">&#9650;</span></th>
+        <th data-key="dividend_yield">Yield <span class="sort-arrow">&#9650;</span></th>
+        <th data-key="annual_dividend">Ann. Div <span class="sort-arrow">&#9650;</span></th>
+        <th>Actions</th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="empty" id="emptyMsg" style="display:none">Your portfolio is empty. Add a position above.</div>
+  </div>
+
+  <div class="modal-overlay" id="editModal">
+    <div class="modal">
+      <h3>Edit Position: <span id="editTicker"></span></h3>
+      <div class="field">
+        <label>Shares</label>
+        <input type="number" id="editShares" min="0.0001" step="any">
+      </div>
+      <div class="field">
+        <label>Avg Cost ($)</label>
+        <input type="number" id="editCost" min="0.01" step="any">
+      </div>
+      <div class="modal-btns">
+        <button class="btn-cancel" onclick="closeEditModal()">Cancel</button>
+        <button class="btn-primary" onclick="submitEdit()">Save</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const statusEl = document.getElementById('status');
+let allItems = [];
+let sortKey = null;
+let sortAsc = true;
+
+const COLORS = ['#6c5ce7','#00cec9','#fd79a8','#ffc048','#a29bfe','#55efc4','#ff6b6b','#74b9ff','#e17055','#00b894','#636e72','#d63031','#0984e3','#fdcb6e'];
+
+function fmt(n) { return n.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+function barColor(pct) {
+  if (pct >= 70) return 'var(--green)';
+  if (pct >= 45) return 'var(--yellow)';
+  return 'var(--red)';
+}
+
+async function addPosition() {
+  const ticker = document.getElementById('addTicker').value.trim().toUpperCase();
+  const shares = parseFloat(document.getElementById('addShares').value);
+  const cost = parseFloat(document.getElementById('addCost').value);
+  if (!ticker) { statusEl.className = 'status error'; statusEl.textContent = 'Enter a ticker.'; return; }
+  if (!shares || shares <= 0) { statusEl.className = 'status error'; statusEl.textContent = 'Enter valid shares.'; return; }
+  if (!cost || cost <= 0) { statusEl.className = 'status error'; statusEl.textContent = 'Enter valid cost.'; return; }
+  statusEl.className = 'status'; statusEl.innerHTML = '<span class="spinner"></span>Adding...';
+  await fetch('/api/portfolio/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker, shares, cost_basis: cost }) });
+  document.getElementById('addTicker').value = '';
+  document.getElementById('addShares').value = '';
+  document.getElementById('addCost').value = '';
+  loadPortfolio();
+}
+
+async function removePosition(id) {
+  await fetch('/api/portfolio/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+  loadPortfolio();
+}
+
+// ---- Edit modal ----
+let editingId = null;
+function openEditModal(id, ticker, shares, cost) {
+  editingId = id;
+  document.getElementById('editTicker').textContent = ticker;
+  document.getElementById('editShares').value = shares;
+  document.getElementById('editCost').value = cost;
+  document.getElementById('editModal').classList.add('show');
+}
+function closeEditModal() { document.getElementById('editModal').classList.remove('show'); }
+async function submitEdit() {
+  const shares = parseFloat(document.getElementById('editShares').value);
+  const cost = parseFloat(document.getElementById('editCost').value);
+  if (!shares || shares <= 0 || !cost || cost <= 0) return;
+  closeEditModal();
+  statusEl.innerHTML = '<span class="spinner"></span>Saving...';
+  await fetch('/api/portfolio/edit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editingId, shares, cost_basis: cost }) });
+  loadPortfolio();
+}
+document.getElementById('editModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeEditModal(); });
+
+// ---- Add to watchlist ----
+async function addToWatchlist(ticker, btn) {
+  btn.disabled = true;
+  const resp = await fetch('/api/watchlist/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker }) });
+  const data = await resp.json();
+  btn.textContent = data.status === 'added' ? 'Added' : 'Saved';
+  btn.style.color = 'var(--green)';
+  btn.style.borderColor = 'var(--green)';
+}
+
+// ---- Analyze inline ----
+async function analyzeTicker(ticker, rowId, btn) {
+  btn.disabled = true;
+  let existingRow = document.getElementById('analysis-' + rowId);
+  if (existingRow) { existingRow.remove(); btn.disabled = false; return; }
+
+  const tr = document.createElement('tr');
+  tr.className = 'analysis-row';
+  tr.id = 'analysis-' + rowId;
+  const parentRow = btn.closest('tr');
+  const colCount = parentRow.cells.length;
+  tr.innerHTML = '<td colspan="' + colCount + '"><span class="spinner"></span> Analyzing ' + ticker + '...</td>';
+  parentRow.after(tr);
+
+  try {
+    const resp = await fetch('/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tickers: ticker }) });
+    const data = await resp.json();
+    if (!resp.ok || !data.results || !data.results.length) {
+      tr.querySelector('td').innerHTML = '<span style="color:var(--red)">Analysis failed.</span>';
+      btn.disabled = false;
+      return;
+    }
+    const r = data.results[0];
+    if (r.error) {
+      tr.querySelector('td').innerHTML = '<span style="color:var(--red)">' + r.error + '</span>';
+      btn.disabled = false;
+      return;
+    }
+    const rc = r.rating.toLowerCase().replace(/\s+/g, '-');
+    let sections = '';
+    ['fundamentals','valuation','dividends','technicals'].forEach(key => {
+      const s = r[key];
+      if (!s) return;
+      const c = barColor(s.pct);
+      sections += '<div class="analysis-section"><div class="as-title">' + key + '</div><div class="as-score" style="color:' + c + '">' + s.score + '/' + s.max + ' (' + s.pct.toFixed(0) + '%)</div><div class="as-bar"><div class="as-bar-fill" style="width:' + s.pct + '%;background:' + c + '"></div></div></div>';
+    });
+    tr.querySelector('td').innerHTML = '<div class="analysis-header"><span class="analysis-score" style="color:' + barColor(r.overall_pct) + '">' + r.overall_pct.toFixed(0) + '%</span><span class="analysis-rating ' + rc + '">' + r.rating + '</span></div><div class="analysis-grid">' + sections + '</div>';
+  } catch (err) {
+    tr.querySelector('td').innerHTML = '<span style="color:var(--red)">Network error.</span>';
+  }
+  btn.disabled = false;
+}
+
+// ---- Sort ----
+document.querySelectorAll('th[data-key]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.key;
+    if (sortKey === key) { sortAsc = !sortAsc; } else { sortKey = key; sortAsc = true; }
+    document.querySelectorAll('th').forEach(h => h.classList.remove('sorted'));
+    th.classList.add('sorted');
+    th.querySelector('.sort-arrow').innerHTML = sortAsc ? '&#9650;' : '&#9660;';
+    renderTable(getSorted());
+  });
+});
+
+function getSorted() {
+  if (!sortKey) return allItems;
+  const sorted = [...allItems];
+  sorted.sort((a, b) => {
+    let va = a[sortKey], vb = b[sortKey];
+    if (va == null) va = -Infinity;
+    if (vb == null) vb = -Infinity;
+    if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return sortAsc ? va - vb : vb - va;
+  });
+  return sorted;
+}
+
+// ---- Donut chart ----
+function renderDonut(items, totalValue) {
+  const section = document.getElementById('allocSection');
+  if (!items.length) { section.classList.remove('show'); return; }
+  section.classList.add('show');
+  document.getElementById('donutVal').textContent = items.length;
+
+  const svg = document.getElementById('donutSvg');
+  const legend = document.getElementById('allocLegend');
+  svg.innerHTML = '';
+  legend.innerHTML = '';
+
+  const r = 70, cx = 90, cy = 90, circ = 2 * Math.PI * r;
+  let offset = 0;
+
+  items.forEach((item, i) => {
+    const pct = totalValue > 0 ? item.market_value / totalValue : 0;
+    const dash = circ * pct;
+    const color = COLORS[i % COLORS.length];
+
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', cx);
+    circle.setAttribute('cy', cy);
+    circle.setAttribute('r', r);
+    circle.setAttribute('fill', 'none');
+    circle.setAttribute('stroke', color);
+    circle.setAttribute('stroke-width', '24');
+    circle.setAttribute('stroke-dasharray', dash + ' ' + (circ - dash));
+    circle.setAttribute('stroke-dashoffset', -offset);
+    svg.appendChild(circle);
+    offset += dash;
+
+    legend.innerHTML += '<div class="alloc-item"><span class="alloc-dot" style="background:' + color + '"></span><span>' + item.ticker + '</span><span class="alloc-pct">' + (pct * 100).toFixed(1) + '%</span></div>';
+  });
+}
+
+// ---- Render table ----
+function renderTable(items) {
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  items.forEach((item, idx) => {
+    const c = item.pnl >= 0 ? 'up' : 'down';
+    const s = item.pnl >= 0 ? '+' : '';
+    const dc = (item.change_pct||0) >= 0 ? 'up' : 'down';
+    const ds = (item.change_pct||0) >= 0 ? '+' : '';
+    const dayC = item.day_pnl >= 0 ? 'up' : 'down';
+    const dayS = item.day_pnl >= 0 ? '+' : '';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="ticker-cell">${item.ticker}</td>
+      <td class="sector-cell">${item.sector}</td>
+      <td>${item.shares}</td>
+      <td>$${fmt(item.cost_basis)}</td>
+      <td>$${fmt(item.current_price)}</td>
+      <td><span class="${dc}">${item.change_pct != null ? ds + item.change_pct.toFixed(2) + '%' : '-'}</span><br><span class="${dayC}" style="font-size:.78rem">${dayS}$${fmt(item.day_pnl)}</span></td>
+      <td>$${fmt(item.market_value)}</td>
+      <td class="${c}">${s}$${fmt(item.pnl)}</td>
+      <td class="${c}">${s}${item.pnl_pct.toFixed(2)}%</td>
+      <td>${item.dividend_yield != null ? item.dividend_yield.toFixed(2) + '%' : '-'}</td>
+      <td class="up">$${fmt(item.annual_dividend)}</td>
+      <td><div class="row-actions">
+        <button class="row-btn" onclick="analyzeTicker('${item.ticker}',${idx},this)">Analyze</button>
+        <button class="row-btn" onclick="openEditModal(${item.id},'${item.ticker}',${item.shares},${item.cost_basis})">Edit</button>
+        <button class="row-btn" onclick="addToWatchlist('${item.ticker}',this)">Watch</button>
+        <button class="row-btn danger" onclick="removePosition(${item.id})">Remove</button>
+      </div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// ---- Load ----
+async function loadPortfolio() {
+  statusEl.className = 'status'; statusEl.innerHTML = '<span class="spinner"></span>Loading portfolio...';
+  try {
+    const resp = await fetch('/api/portfolio');
+    const data = await resp.json();
+    statusEl.textContent = '';
+    allItems = data.items;
+
+    if (!data.items.length) {
+      document.getElementById('table').style.display = 'none';
+      document.getElementById('summaryRow').classList.remove('show');
+      document.getElementById('allocSection').classList.remove('show');
+      document.getElementById('emptyMsg').style.display = 'block';
+      return;
+    }
+    document.getElementById('emptyMsg').style.display = 'none';
+    document.getElementById('table').style.display = 'table';
+    document.getElementById('summaryRow').classList.add('show');
+
+    const sign = data.total_pnl >= 0 ? '+' : '';
+    const cls = data.total_pnl >= 0 ? 'up' : 'down';
+    document.getElementById('totalValue').textContent = '$' + fmt(data.total_value);
+    document.getElementById('totalCost').textContent = '$' + fmt(data.total_cost);
+    const pnlEl = document.getElementById('totalPnl');
+    pnlEl.textContent = sign + '$' + fmt(data.total_pnl) + ' (' + sign + data.total_pnl_pct.toFixed(2) + '%)';
+    pnlEl.className = 'val ' + cls;
+
+    const daySign = data.total_day_pnl >= 0 ? '+' : '';
+    const dayCls = data.total_day_pnl >= 0 ? 'up' : 'down';
+    const dayEl = document.getElementById('dayPnl');
+    dayEl.textContent = daySign + '$' + fmt(data.total_day_pnl);
+    dayEl.className = 'val ' + dayCls;
+
+    document.getElementById('annualDiv').textContent = '$' + fmt(data.total_annual_dividend);
+    document.getElementById('annualDiv').className = 'val up';
+
+    if (data.best) {
+      const bEl = document.getElementById('bestPerf');
+      const bS = data.best.pnl_pct >= 0 ? '+' : '';
+      bEl.textContent = data.best.ticker + ' ' + bS + data.best.pnl_pct.toFixed(2) + '%';
+      bEl.className = 'val up';
+    }
+    if (data.worst) {
+      const wEl = document.getElementById('worstPerf');
+      const wS = data.worst.pnl_pct >= 0 ? '+' : '';
+      wEl.textContent = data.worst.ticker + ' ' + wS + data.worst.pnl_pct.toFixed(2) + '%';
+      wEl.className = 'val down';
+    }
+
+    renderDonut(data.items, data.total_value);
+    renderTable(getSorted());
+  } catch (err) { statusEl.className = 'status error'; statusEl.textContent = 'Failed to load portfolio.'; }
+}
+
+loadPortfolio();
+</script>
+</body>
+</html>
