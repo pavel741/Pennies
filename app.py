@@ -47,41 +47,21 @@ def health():
         return jsonify({"status": "error", "db": str(e)}), 500
 
 
-@app.route("/debug/test-register")
-def debug_test_register():
-    """Temporary endpoint to diagnose registration errors."""
-    import traceback, io
-    buf = io.StringIO()
-    try:
-        db = get_db()
-        buf.write("1. get_db() OK\n")
-        from werkzeug.security import generate_password_hash
-        pw_hash = generate_password_hash("testpass123")
-        buf.write(f"2. password hash OK: {pw_hash[:20]}...\n")
-        count = db.users.count_documents({})
-        buf.write(f"3. users collection count: {count}\n")
-        test_email = "debug-test@example.com"
-        existing = db.users.find_one({"email": test_email})
-        buf.write(f"4. find_one OK, existing={existing is not None}\n")
-        if existing:
-            db.users.delete_one({"email": test_email})
-            buf.write("5. cleaned up old test user\n")
-        result = db.users.insert_one({
-            "email": test_email,
-            "password_hash": pw_hash,
-            "created_at": datetime.now(timezone.utc),
-        })
-        buf.write(f"6. insert_one OK, id={result.inserted_id}\n")
-        user_doc = db.users.find_one({"_id": result.inserted_id})
-        buf.write(f"7. re-read OK, email={user_doc['email']}\n")
-        user = User(user_doc)
-        buf.write(f"8. User wrapper OK, id={user.id}, email={user.email}\n")
-        db.users.delete_one({"_id": result.inserted_id})
-        buf.write("9. cleanup OK\n")
-        buf.write("\nAll steps passed!")
-    except Exception:
-        buf.write(f"\nERROR:\n{traceback.format_exc()}")
-    return buf.getvalue(), 200, {"Content-Type": "text/plain"}
+@app.route("/debug/env")
+def debug_env():
+    """Show what the worker process actually sees."""
+    import os as _os
+    uri = _os.environ.get("MONGODB_URI")
+    masked = (uri[:30] + "***") if uri and len(uri) > 30 else repr(uri)
+    from models import _client, _db
+    return jsonify({
+        "MONGODB_URI_set": uri is not None,
+        "MONGODB_URI_preview": masked,
+        "MONGODB_URI_length": len(uri) if uri else 0,
+        "singleton_db_is_none": _db is None,
+        "singleton_client_is_none": _client is None,
+        "pid": _os.getpid(),
+    })
 
 
 print("[Pennies] DB engine: MongoDB Atlas", flush=True)
