@@ -6,11 +6,74 @@ Bypasses yfinance (which requires curl_cffi and has SSL issues on Windows).
 import requests
 import time
 import logging
+import hashlib
+import json
 import pandas as pd
 import numpy as np
 from typing import Optional
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
+
+CACHE_TTL_MINUTES = 15
+
+
+def _cache_collection():
+    """Return the MongoDB cache collection (lazy, avoids circular imports)."""
+    try:
+        from models import get_db
+        db = get_db()
+        return db.api_cache
+    except Exception:
+        return None
+
+
+def _ensure_cache_index():
+    """Create TTL index on first use so MongoDB auto-deletes expired entries."""
+    col = _cache_collection()
+    if col is not None:
+        try:
+            col.create_index("expires_at", expireAfterSeconds=0)
+        except Exception:
+            pass
+
+
+_cache_index_created = False
+
+
+def _cache_get(key: str) -> Optional[dict]:
+    """Fetch a cached response by key, or None if missing/expired."""
+    global _cache_index_created
+    col = _cache_collection()
+    if col is None:
+        return None
+    if not _cache_index_created:
+        _ensure_cache_index()
+        _cache_index_created = True
+    doc = col.find_one({"_id": key, "expires_at": {"$gt": datetime.now(timezone.utc)}})
+    if doc:
+        logger.info(f"Cache HIT: {key}")
+        return doc.get("data")
+    return None
+
+
+def _cache_set(key: str, data, ttl_minutes: int = CACHE_TTL_MINUTES):
+    """Store a response in the cache with a TTL."""
+    col = _cache_collection()
+    if col is None:
+        return
+    try:
+        col.replace_one(
+            {"_id": key},
+            {
+                "_id": key,
+                "data": data,
+                "expires_at": datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes),
+            },
+            upsert=True,
+        )
+    except Exception as e:
+        logger.warning(f"Cache write failed: {e}")
 
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -61,6 +124,11 @@ def reset_session():
 
 def get_quote_summary(symbol: str) -> dict:
     """Fetch quote summary (price, stats, financials, dividends) for a symbol."""
+    cache_key = f"quote:{symbol.upper()}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     s, crumb = _get_session()
     modules = ",".join([
         "price",
@@ -84,11 +152,20 @@ def get_quote_summary(symbol: str) -> dict:
     results = data.get("quoteSummary", {}).get("result")
     if not results:
         return {}
-    return results[0]
+    result = results[0]
+    _cache_set(cache_key, result)
+    return result
 
 
 def get_chart(symbol: str, range_str: str = "1y", interval: str = "1d") -> pd.DataFrame:
     """Fetch historical price data and return as a DataFrame."""
+    cache_key = f"chart:{symbol.upper()}:{range_str}:{interval}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        df = pd.DataFrame(cached["rows"], columns=cached["cols"])
+        df.index = pd.to_datetime(cached["index"], utc=True)
+        return df
+
     s, crumb = _get_session()
     url = f"https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
     params = {
@@ -128,6 +205,11 @@ def get_chart(symbol: str, range_str: str = "1y", interval: str = "1d") -> pd.Da
     }, index=pd.to_datetime(timestamps, unit="s", utc=True))
 
     df.dropna(subset=["Close"], inplace=True)
+    _cache_set(cache_key, {
+        "rows": df.values.tolist(),
+        "cols": df.columns.tolist(),
+        "index": [str(t) for t in df.index],
+    })
     return df
 
 
@@ -258,9 +340,16 @@ def screen_stocks(
     Query the Yahoo Finance screener API to get equities on the given exchanges.
     Batches requests to avoid Yahoo 500 errors when too many exchanges are passed.
     """
+    cache_key = f"screen:{','.join(sorted(exchanges))}:{max_price}:{size}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     if len(exchanges) <= _SCREENER_BATCH:
         results = _screen_batch(exchanges, max_price, size)
         logger.info(f"Screener returned {len(results)} stocks for exchanges {exchanges}")
+        if results:
+            _cache_set(cache_key, results, ttl_minutes=30)
         return results
 
     all_quotes = []
@@ -281,6 +370,8 @@ def screen_stocks(
             logger.warning(f"Screener batch {batch} failed: {e}")
 
     logger.info(f"Screener returned {len(all_quotes)} stocks for exchanges {exchanges}")
+    if all_quotes:
+        _cache_set(cache_key, all_quotes, ttl_minutes=30)
     return all_quotes
 
 
