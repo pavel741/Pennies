@@ -28,18 +28,29 @@ def _get_session() -> tuple[requests.Session, str]:
     if _session and _crumb:
         return _session, _crumb
 
-    s = requests.Session()
-    s.headers["User-Agent"] = _USER_AGENT
+    max_retries = 5
+    for attempt in range(1, max_retries + 1):
+        try:
+            s = requests.Session()
+            s.headers["User-Agent"] = _USER_AGENT
 
-    s.get("https://fc.yahoo.com", timeout=10)
-    r = s.get("https://query2.finance.yahoo.com/v1/test/getcrumb", timeout=10)
-    r.raise_for_status()
-    crumb = r.text.strip()
+            s.get("https://fc.yahoo.com", timeout=10)
+            r = s.get("https://query2.finance.yahoo.com/v1/test/getcrumb", timeout=10)
+            r.raise_for_status()
+            crumb = r.text.strip()
 
-    _session = s
-    _crumb = crumb
-    logger.info("Yahoo session established, crumb acquired")
-    return s, crumb
+            _session = s
+            _crumb = crumb
+            logger.info("Yahoo session established, crumb acquired")
+            return s, crumb
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 429:
+                wait = 2 ** attempt
+                logger.warning(f"Crumb request rate-limited (attempt {attempt}/{max_retries}), waiting {wait}s")
+                time.sleep(wait)
+            else:
+                raise
+    raise RuntimeError("Could not acquire Yahoo crumb after retries — rate-limited")
 
 
 def reset_session():
@@ -215,6 +226,11 @@ def _screen_batch(
             params["crumb"] = crumb
             r = s.post(url, params=params, json=body, timeout=20)
 
+        if r.status_code == 429:
+            logger.warning("Screener 429, waiting 3s before retry")
+            time.sleep(3)
+            r = s.post(url, params=params, json=body, timeout=20)
+
         r.raise_for_status()
         data = r.json()
 
@@ -250,6 +266,8 @@ def screen_stocks(
     all_quotes = []
     seen = set()
     for i in range(0, len(exchanges), _SCREENER_BATCH):
+        if i > 0:
+            time.sleep(1.5)
         batch = exchanges[i:i + _SCREENER_BATCH]
         per_batch = max(size // ((len(exchanges) + _SCREENER_BATCH - 1) // _SCREENER_BATCH), 100)
         try:
