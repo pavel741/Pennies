@@ -2,6 +2,8 @@
 
 import os
 import re
+import logging
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,6 +19,9 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from models import get_db, User
 
+logging.basicConfig(stream=sys.stdout, level=logging.INFO,
+                    format="%(asctime)s [%(levelname)s] %(message)s")
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "pennies-dev-secret-change-me")
 
@@ -31,7 +36,24 @@ def load_user(user_id):
     return User.find_by_id(user_id)
 
 
+@app.route("/health")
+def health():
+    """Health check that tests MongoDB connectivity."""
+    try:
+        db = get_db()
+        db.command("ping")
+        return jsonify({"status": "ok", "db": "connected"})
+    except Exception as e:
+        return jsonify({"status": "error", "db": str(e)}), 500
+
+
 print("[Pennies] DB engine: MongoDB Atlas")
+
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    app.logger.error(f"Unhandled exception: {e}", exc_info=True)
+    return "Internal Server Error", 500
 
 
 # --------------- Auth ---------------
