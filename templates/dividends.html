@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pennies — Dividend Calculator</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232734;
+    --border: #2e3348;
+    --text: #e4e6f0;
+    --text2: #9ca0b4;
+    --accent: #6c5ce7;
+    --accent2: #a29bfe;
+    --green: #00cec9;
+    --green-bg: rgba(0,206,201,.12);
+    --yellow: #ffc048;
+    --red: #ff6b6b;
+    --radius: 14px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  .nav {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .nav a {
+    color: var(--accent2);
+    text-decoration: none;
+    font-size: .9rem;
+    font-weight: 500;
+  }
+  .nav a:hover { text-decoration: underline; }
+
+  .hero {
+    text-align: center;
+    padding: 48px 20px 36px;
+  }
+  .hero h1 {
+    font-size: 2.4rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent2), var(--green));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero p {
+    color: var(--text2);
+    margin-top: 8px;
+    font-size: 1rem;
+    max-width: 480px;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.5;
+  }
+
+  .calc-card {
+    max-width: 500px;
+    margin: 0 auto 40px;
+    padding: 28px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .field {
+    margin-bottom: 18px;
+  }
+  .field label {
+    display: block;
+    font-size: .85rem;
+    font-weight: 600;
+    color: var(--text2);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+  }
+  .field input {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-size: 1rem;
+    font-weight: 500;
+    outline: none;
+    transition: border .2s;
+  }
+  .field input:focus { border-color: var(--accent); }
+  .field input::placeholder { color: var(--text2); opacity: .6; }
+
+  .calc-btn {
+    width: 100%;
+    padding: 14px;
+    border-radius: 12px;
+    border: none;
+    background: linear-gradient(135deg, var(--accent), #7f6cf0);
+    color: #fff;
+    font-size: 1.05rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform .15s, box-shadow .2s;
+    box-shadow: 0 4px 20px rgba(108,92,231,.3);
+  }
+  .calc-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 28px rgba(108,92,231,.45); }
+  .calc-btn:active { transform: scale(.98); }
+  .calc-btn:disabled { opacity: .5; cursor: wait; transform: none; }
+
+  .status {
+    text-align: center;
+    margin: 16px 0;
+    font-size: .9rem;
+    color: var(--text2);
+    min-height: 24px;
+  }
+  .status.error { color: var(--red); }
+
+  .result-card {
+    max-width: 500px;
+    margin: 0 auto 40px;
+    padding: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    display: none;
+  }
+  .result-card.show { display: block; }
+
+  .result-header {
+    padding: 20px 24px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .result-header .ticker {
+    font-size: 1.3rem;
+    font-weight: 800;
+    letter-spacing: .5px;
+  }
+  .result-header .name {
+    font-size: .9rem;
+    color: var(--text2);
+  }
+  .result-header .price {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--accent2);
+  }
+
+  .result-body {
+    padding: 20px 24px;
+  }
+
+  .big-number {
+    text-align: center;
+    padding: 20px 0 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  .big-number .label {
+    font-size: .8rem;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--text2);
+    margin-bottom: 4px;
+  }
+  .big-number .value {
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: var(--green);
+  }
+  .big-number .sub {
+    font-size: 1rem;
+    color: var(--text2);
+    margin-top: 4px;
+  }
+
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .detail-box {
+    padding: 12px;
+    background: var(--surface2);
+    border-radius: 10px;
+  }
+  .detail-box .label {
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    color: var(--text2);
+    margin-bottom: 4px;
+  }
+  .detail-box .value {
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+  .detail-box .value.green { color: var(--green); }
+
+  .no-dividend {
+    text-align: center;
+    padding: 24px;
+    color: var(--yellow);
+    font-size: 1rem;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2.5px solid var(--border);
+    border-top-color: var(--accent2);
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+  <div class="nav">
+    <a href="/">&larr; Back to Stock Suggestions</a>
+  </div>
+
+  <div class="hero">
+    <h1>Dividend Calculator</h1>
+    <p>Enter a ticker and your investment amount to see how much dividend income you'll earn per year.</p>
+  </div>
+
+  <div class="calc-card">
+    <div class="field">
+      <label>Stock Ticker</label>
+      <input type="text" id="ticker" placeholder="e.g. AAPL" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Amount Invested ($)</label>
+      <input type="number" id="invested" placeholder="e.g. 5000" min="1" step="1">
+    </div>
+    <button class="calc-btn" id="calcBtn" onclick="calculate()">Calculate Dividends</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="result-card" id="resultCard">
+    <div class="result-header">
+      <div>
+        <span class="ticker" id="rTicker"></span>
+        <span class="name" id="rName"></span>
+      </div>
+      <span class="price" id="rPrice"></span>
+    </div>
+    <div class="result-body" id="resultBody"></div>
+  </div>
+
+<script>
+const calcBtn = document.getElementById('calcBtn');
+const statusEl = document.getElementById('status');
+const resultCard = document.getElementById('resultCard');
+
+document.getElementById('ticker').addEventListener('keydown', e => { if (e.key === 'Enter') calculate(); });
+document.getElementById('invested').addEventListener('keydown', e => { if (e.key === 'Enter') calculate(); });
+
+async function calculate() {
+  const ticker = document.getElementById('ticker').value.trim();
+  const invested = parseFloat(document.getElementById('invested').value);
+
+  if (!ticker) { statusEl.className = 'status error'; statusEl.textContent = 'Enter a ticker.'; return; }
+  if (!invested || invested <= 0) { statusEl.className = 'status error'; statusEl.textContent = 'Enter a valid amount.'; return; }
+
+  calcBtn.disabled = true;
+  resultCard.classList.remove('show');
+  statusEl.className = 'status';
+  statusEl.innerHTML = '<span class="spinner"></span>Looking up ' + ticker.toUpperCase() + '...';
+
+  try {
+    const resp = await fetch('/dividend-calc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker, invested }),
+    });
+    const d = await resp.json();
+
+    if (d.error && !d.pays_dividend && d.pays_dividend === false) {
+      statusEl.className = 'status';
+      statusEl.textContent = '';
+      document.getElementById('rTicker').textContent = d.ticker;
+      document.getElementById('rName').textContent = d.name;
+      document.getElementById('rPrice').textContent = d.currency + ' ' + d.price.toFixed(2);
+      document.getElementById('resultBody').innerHTML = '<div class="no-dividend">' + d.error + '</div>';
+      resultCard.classList.add('show');
+    } else if (d.error) {
+      statusEl.className = 'status error';
+      statusEl.textContent = d.error;
+    } else {
+      statusEl.className = 'status';
+      statusEl.textContent = '';
+      document.getElementById('rTicker').textContent = d.ticker;
+      document.getElementById('rName').textContent = '  ' + d.name;
+      document.getElementById('rPrice').textContent = d.currency + ' ' + d.price.toFixed(2);
+
+      let html = '<div class="big-number">';
+      html += '<div class="label">Annual Dividend Income</div>';
+      html += '<div class="value">$' + d.annual_dividend.toFixed(2) + '</div>';
+      html += '<div class="sub">$' + d.monthly_dividend.toFixed(2) + ' / month</div>';
+      html += '</div>';
+      html += '<div class="detail-grid">';
+      html += box('Shares Owned', d.shares.toFixed(2));
+      html += box('Dividend Yield', d.dividend_yield.toFixed(2) + '%', 'green');
+      html += box('Div / Share', '$' + d.dividend_per_share.toFixed(2));
+      html += box('Payout Ratio', d.payout_ratio ? d.payout_ratio.toFixed(0) + '%' : 'N/A');
+      html += box('Invested', '$' + d.invested.toLocaleString());
+      html += box('Ex-Div Date', d.ex_dividend_date || 'N/A');
+      html += '</div>';
+
+      document.getElementById('resultBody').innerHTML = html;
+      resultCard.classList.add('show');
+    }
+  } catch (err) {
+    statusEl.className = 'status error';
+    statusEl.textContent = 'Network error — is the server running?';
+  }
+  calcBtn.disabled = false;
+}
+
+function box(label, value, cls) {
+  return '<div class="detail-box"><div class="label">' + label + '</div><div class="value' + (cls ? ' ' + cls : '') + '">' + value + '</div></div>';
+}
+</script>
+</body>
+</html>
