@@ -164,8 +164,26 @@ def screen_stocks(
     size: int = 250,
 ) -> list[dict]:
     """
-    Screen stocks by exchange and price. Uses Yahoo only
-    (Twelve Data doesn't have a screener equivalent).
+    Screen stocks by exchange and price.
+    Tries Yahoo first (returns rich data), falls back to FMP screener.
     """
     import yahoo_api
-    return yahoo_api.screen_stocks(exchanges, max_price=max_price, size=size)
+    import fmp_api
+
+    try:
+        results = yahoo_api.screen_stocks(exchanges, max_price=max_price, size=size)
+        if results:
+            return results
+    except Exception as e:
+        logger.warning(f"[data_layer] Yahoo screener failed: {e}")
+
+    if fmp_api.is_configured():
+        try:
+            results = fmp_api.screen_stocks(exchanges, max_price=max_price, size=size)
+            if results:
+                logger.info(f"[data_layer] Screener: {len(results)} stocks from FMP fallback")
+                return results
+        except Exception as e:
+            logger.warning(f"[data_layer] FMP screener also failed: {e}")
+
+    return []
