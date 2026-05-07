@@ -11,9 +11,10 @@ load_dotenv()
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from analyzer import analyze_multiple, suggest_stocks, gamble_stocks, MARKETS
-from yahoo_api import get_quote_summary, extract_info, get_chart
+import data_layer
 import finnhub_api
 import fmp_api
+import twelvedata_api
 import json
 from datetime import datetime, timezone
 from bson import ObjectId
@@ -137,6 +138,7 @@ def api_config():
     return jsonify({
         "finnhub": finnhub_api.is_configured(),
         "fmp": fmp_api.is_configured(),
+        "twelvedata": twelvedata_api.is_configured(),
     })
 
 
@@ -246,12 +248,12 @@ def dividend_calc():
         return jsonify({"error": "Investment must be greater than 0."}), 400
 
     try:
-        summary = get_quote_summary(ticker)
-        if not summary:
+        info = data_layer.get_stock_summary(ticker)
+        if not info:
             return jsonify({"error": f"Ticker '{ticker}' not found."}), 404
 
-        info = extract_info(summary)
-        detail = summary.get("summaryDetail", {})
+        raw_summary = info.get("_raw_summary", {})
+        detail = raw_summary.get("summaryDetail", {})
 
         price = info.get("currentPrice") or info.get("regularMarketPrice")
         if not price or price <= 0:
@@ -324,8 +326,7 @@ def watchlist_get():
     results = []
     for item in items:
         try:
-            summary = get_quote_summary(item["ticker"])
-            info = extract_info(summary) if summary else {}
+            info = data_layer.get_stock_summary(item["ticker"])
             price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
             mcap = info.get("marketCap")
             target = info.get("targetMeanPrice")
@@ -424,8 +425,7 @@ def portfolio_get():
     for item in items:
         info = {}
         try:
-            summary = get_quote_summary(item["ticker"])
-            info = extract_info(summary) if summary else {}
+            info = data_layer.get_stock_summary(item["ticker"])
         except Exception:
             pass
         price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
@@ -622,7 +622,7 @@ def compare_stocks():
         if run_dt:
             for ticker in tickers:
                 try:
-                    df = get_chart(ticker, range_str="1y", interval="1d")
+                    df = data_layer.get_historical(ticker, range_str="1y", interval="1d")
                     if df.empty:
                         continue
                     target = pd.Timestamp(run_dt, tz="UTC")
