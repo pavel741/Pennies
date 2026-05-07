@@ -2,6 +2,7 @@
 
 import os
 import time
+import threading
 import logging
 import requests
 import pandas as pd
@@ -12,8 +13,9 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://api.twelvedata.com"
 _API_KEY = None
+_rate_lock = threading.Lock()
 _last_call = 0.0
-_MIN_INTERVAL = 0.5
+_MIN_INTERVAL = 4.0  # Stay within 8 requests/min free tier (with 2 workers: ~1 req per 4s each)
 
 _RANGE_TO_OUTPUTSIZE = {
     "5d": 5,
@@ -55,10 +57,11 @@ def is_configured() -> bool:
 
 def _throttle():
     global _last_call
-    elapsed = time.time() - _last_call
-    if elapsed < _MIN_INTERVAL:
-        time.sleep(_MIN_INTERVAL - elapsed)
-    _last_call = time.time()
+    with _rate_lock:
+        elapsed = time.time() - _last_call
+        if elapsed < _MIN_INTERVAL:
+            time.sleep(_MIN_INTERVAL - elapsed)
+        _last_call = time.time()
 
 
 def _request(endpoint: str, params: dict, timeout: int = 15) -> dict:

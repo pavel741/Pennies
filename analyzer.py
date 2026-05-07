@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Rate limiter
 # ---------------------------------------------------------------------------
 _RATE_DELAY = 0.6
-_MAX_WORKERS = 4
+_MAX_WORKERS = 2
 _MAX_RETRIES = 2
 _RETRY_BACKOFF = 3.0
 _rate_lock = threading.Lock()

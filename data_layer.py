@@ -43,18 +43,13 @@ def get_stock_summary(symbol: str) -> dict:
 
     try:
         quote = twelvedata_api.get_quote(symbol)
-        profile = {}
-        try:
-            profile = twelvedata_api.get_profile(symbol)
-        except Exception as e:
-            logger.warning(f"[data_layer] TD profile failed for {symbol}: {e}")
 
         info = {
-            "shortName": quote.get("name") or profile.get("name") or symbol,
-            "longName": profile.get("name") or quote.get("name"),
-            "sector": profile.get("sector", "N/A"),
-            "industry": profile.get("industry", "N/A"),
-            "currency": quote.get("currency") or profile.get("currency") or "USD",
+            "shortName": quote.get("name") or symbol,
+            "longName": quote.get("name"),
+            "sector": "N/A",
+            "industry": "N/A",
+            "currency": quote.get("currency") or "USD",
             "currentPrice": quote.get("price"),
             "regularMarketPrice": quote.get("price"),
             "regularMarketChangePercent": quote.get("percent_change"),
