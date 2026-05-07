@@ -15,5 +15,3 @@ services:
         sync: false
       - key: FMP_API_KEY
         sync: false
-      - key: TWELVE_DATA_API_KEY
-        sync: false

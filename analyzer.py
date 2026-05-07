@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import data_layer
+from yahoo_api import get_quote_summary, extract_info, get_chart, get_dividends, screen_stocks
 import finnhub_api
 import fmp_api
 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Rate limiter
 # ---------------------------------------------------------------------------
 _RATE_DELAY = 0.6
-_MAX_WORKERS = 2
+_MAX_WORKERS = 4
 _MAX_RETRIES = 2
 _RETRY_BACKOFF = 3.0
 _rate_lock = threading.Lock()
@@ -497,7 +497,7 @@ def _score_dividends(info: dict, symbol: str) -> ScoreBreakdown:
 
     try:
         _throttle()
-        divs = data_layer.get_stock_dividends(symbol)
+        divs = get_dividends(symbol)
         if divs is not None and len(divs) > 0:
             years_with_divs = divs.index.year.nunique()
             if years_with_divs >= 15:
@@ -980,27 +980,25 @@ def analyze_stock(symbol: str) -> StockReport:
     for attempt in range(1, _MAX_RETRIES + 2):
         try:
             _throttle()
-            logger.info(f"{symbol}: fetching stock data (attempt {attempt})")
-            info = data_layer.get_stock_summary(symbol)
-            if not info:
+            logger.info(f"{symbol}: fetching quote summary (attempt {attempt})")
+            summary = get_quote_summary(symbol)
+            if not summary:
                 return _empty_report(symbol, error=f"Ticker '{symbol}' not found.")
 
+            info = extract_info(summary)
             name = info.get("shortName") or info.get("longName") or symbol
-            raw_summary = info.get("_raw_summary", {})
             if not name or name == symbol:
-                price_data = raw_summary.get("price", {})
+                price_data = summary.get("price", {})
                 name = price_data.get("shortName") or price_data.get("longName") or symbol
 
             sector = info.get("sector", "N/A")
             industry = info.get("industry", "N/A")
             price = _safe(info.get("currentPrice")) or _safe(info.get("regularMarketPrice")) or 0
             currency = info.get("currency") or "USD"
-            source = info.get("_source", "unknown")
-            logger.info(f"{symbol}: data from {source}, price={price}")
 
             _throttle()
             logger.info(f"{symbol}: fetching chart data")
-            hist = data_layer.get_historical(symbol)
+            hist = get_chart(symbol)
 
             fund = _score_fundamentals(info)
             val = _score_valuation(info)
@@ -1063,7 +1061,7 @@ def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] 
     # Phase 1: Screener fetch
     logger.info(f"Phase 1: Screening exchanges {exchanges} (max_price={max_price})")
     try:
-        quotes = data_layer.screen_stocks(exchanges, max_price=max_price, size=_SCREENER_SIZE)
+        quotes = screen_stocks(exchanges, max_price=max_price, size=_SCREENER_SIZE)
     except Exception as e:
         logger.error(f"Screener API failed: {e}")
         return []
@@ -1072,6 +1070,7 @@ def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] 
         logger.warning("Screener returned no results")
         return []
 
+    # Filter out tickers with exchange suffixes not available on Lightyear
     import re
     _SUFFIX_RE = re.compile(r"\.[A-Z]{1,4}$")
     filtered = []
@@ -1156,7 +1155,7 @@ def gamble_stocks(top_n: int = 30, max_price: float = None, markets: list[str] =
 
     logger.info(f"Gamble mode: Screening exchanges {exchanges} (max_price={max_price})")
     try:
-        quotes = data_layer.screen_stocks(exchanges, max_price=max_price, size=_SCREENER_SIZE)
+        quotes = screen_stocks(exchanges, max_price=max_price, size=_SCREENER_SIZE)
     except Exception as e:
         logger.error(f"Screener API failed: {e}")
         return []
@@ -1164,6 +1163,7 @@ def gamble_stocks(top_n: int = 30, max_price: float = None, markets: list[str] =
     if not quotes:
         return []
 
+    # Same ticker filter as suggest
     import re
     _SUFFIX_RE = re.compile(r"\.[A-Z]{1,4}$")
     filtered = []
