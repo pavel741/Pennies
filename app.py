@@ -13,7 +13,7 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from analyzer import analyze_multiple, suggest_stocks, gamble_stocks, MARKETS
 from yahoo_api import get_quote_summary, extract_info, get_chart
 import finnhub_api
-import fmp_api
+import background_jobs
 import json
 from datetime import datetime, timezone
 from bson import ObjectId
@@ -136,7 +136,7 @@ def dividends_page():
 def api_config():
     return jsonify({
         "finnhub": finnhub_api.is_configured(),
-        "fmp": fmp_api.is_configured(),
+        "securitiesdb": True,
     })
 
 
@@ -151,12 +151,24 @@ def suggest():
     if max_price is not None:
         max_price = float(max_price)
     markets = data.get("markets") or ["us"]
-    try:
-        results = suggest_stocks(top_n, max_price=max_price, markets=markets)
-    except RuntimeError as e:
-        return jsonify({"error": str(e), "results": [], "markets": MARKETS}), 200
-    _save_history(results, "suggest")
-    return jsonify({"results": results, "markets": MARKETS})
+    force = data.get("force", False)
+
+    if not force:
+        cached = background_jobs.get_cached_results("suggest", markets, max_price)
+        if cached:
+            created = cached["created_at"].replace(tzinfo=timezone.utc) if cached["created_at"].tzinfo is None else cached["created_at"]
+            age_min = int((datetime.now(timezone.utc) - created).total_seconds() / 60)
+            return jsonify({
+                "cached": True,
+                "results": cached.get("results") or [],
+                "markets": MARKETS,
+                "cache_age_min": age_min,
+            })
+
+    job_id = background_jobs.start_job("suggest", current_user.id, {
+        "top": top_n, "max_price": max_price, "markets": sorted(markets),
+    })
+    return jsonify({"job_id": job_id})
 
 
 @app.route("/gamble", methods=["POST"])
@@ -168,12 +180,46 @@ def gamble():
     if max_price is not None:
         max_price = float(max_price)
     markets = data.get("markets") or ["us"]
-    try:
-        results = gamble_stocks(top_n, max_price=max_price, markets=markets)
-    except RuntimeError as e:
-        return jsonify({"error": str(e), "results": [], "markets": MARKETS}), 200
-    _save_history(results, "gamble")
-    return jsonify({"results": results, "markets": MARKETS})
+    force = data.get("force", False)
+
+    if not force:
+        cached = background_jobs.get_cached_results("gamble", markets, max_price)
+        if cached:
+            created = cached["created_at"].replace(tzinfo=timezone.utc) if cached["created_at"].tzinfo is None else cached["created_at"]
+            age_min = int((datetime.now(timezone.utc) - created).total_seconds() / 60)
+            return jsonify({
+                "cached": True,
+                "results": cached.get("results") or [],
+                "markets": MARKETS,
+                "cache_age_min": age_min,
+            })
+
+    job_id = background_jobs.start_job("gamble", current_user.id, {
+        "top": top_n, "max_price": max_price, "markets": sorted(markets),
+    })
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/job/<job_id>")
+@login_required
+def job_status(job_id):
+    job = background_jobs.get_job(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    if job["user_id"] != current_user.id:
+        return jsonify({"error": "Not authorized"}), 403
+
+    resp = {
+        "status": job["status"],
+        "progress": job["progress"],
+        "message": job["message"],
+    }
+    if job["status"] == "done":
+        resp["results"] = job.get("results") or []
+        resp["markets"] = MARKETS
+    elif job["status"] == "failed":
+        resp["error"] = job.get("error") or "Unknown error"
+    return jsonify(resp)
 
 
 @app.route("/analyze", methods=["POST"])

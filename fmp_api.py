@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 _API_KEY: Optional[str] = None
 _BASE = "https://financialmodelingprep.com/stable"
-_RATE_DELAY = 0.5
+_RATE_DELAY = 1.2
+_MAX_RETRIES = 4
 _rate_lock = threading.Lock()
 _last_request_time = 0.0
 
@@ -48,18 +49,29 @@ def _get(endpoint: str, extra_params: dict = None) -> Optional[dict | list]:
     params = {"apikey": key}
     if extra_params:
         params.update(extra_params)
-    try:
-        _throttle()
-        r = requests.get(f"{_BASE}/{endpoint}", params=params, timeout=15)
-        if r.status_code == 429:
-            logger.warning("FMP rate-limited, backing off 5s")
-            time.sleep(5)
+
+    for attempt in range(_MAX_RETRIES):
+        try:
+            _throttle()
             r = requests.get(f"{_BASE}/{endpoint}", params=params, timeout=15)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        logger.warning(f"FMP {endpoint} failed: {e}")
-        return None
+            if r.status_code == 429:
+                backoff = 5 * (2 ** attempt)
+                logger.warning(f"FMP rate-limited on {endpoint}, retry {attempt+1}/{_MAX_RETRIES} in {backoff}s")
+                time.sleep(backoff)
+                continue
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.HTTPError:
+            if attempt < _MAX_RETRIES - 1:
+                time.sleep(3 * (attempt + 1))
+                continue
+            logger.warning(f"FMP {endpoint} failed after {_MAX_RETRIES} attempts")
+            return None
+        except Exception as e:
+            logger.warning(f"FMP {endpoint} failed: {e}")
+            return None
+    logger.warning(f"FMP {endpoint}: exhausted retries (rate-limited)")
+    return None
 
 
 def get_dcf(symbol: str) -> Optional[list[dict]]:

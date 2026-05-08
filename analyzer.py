@@ -15,9 +15,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from yahoo_api import get_quote_summary, extract_info, get_chart, get_dividends, screen_stocks
+from yahoo_api import get_quote_summary, extract_info, extract_institutional, get_chart, get_dividends, screen_stocks
 import finnhub_api
-import fmp_api
+import securitiesdb_api
 
 logging.basicConfig(
     level=logging.INFO,
@@ -125,6 +125,7 @@ class StockReport:
     technicals: ScoreBreakdown
     sentiment: Optional[ScoreBreakdown] = None
     fair_value: Optional[ScoreBreakdown] = None
+    risk_quality: Optional[ScoreBreakdown] = None
     prediction: Optional[dict] = None
     error: Optional[str] = None
 
@@ -135,6 +136,8 @@ class StockReport:
             base.append(self.sentiment)
         if self.fair_value and self.fair_value.max_score > 0:
             base.append(self.fair_value)
+        if self.risk_quality and self.risk_quality.max_score > 0:
+            base.append(self.risk_quality)
         return base
 
     @property
@@ -210,6 +213,12 @@ class StockReport:
                 "pct": round(self.fair_value.pct, 1),
                 "details": self.fair_value.details,
             } if self.fair_value and self.fair_value.max_score > 0 else None,
+            "risk_quality": {
+                "score": round(self.risk_quality.score, 1),
+                "max": round(self.risk_quality.max_score, 1),
+                "pct": round(self.risk_quality.pct, 1),
+                "details": self.risk_quality.details,
+            } if self.risk_quality and self.risk_quality.max_score > 0 else None,
             "prediction": self.prediction,
             "error": self.error,
         }
@@ -370,6 +379,9 @@ def _score_fundamentals(info: dict) -> ScoreBreakdown:
     mcap = _safe(info.get("marketCap"))
     if fcf is not None and mcap and mcap > 0:
         fcf_yield = fcf / mcap * 100
+        if fcf_yield > 100 or fcf_yield < -100:
+            sb.details.append({"label": "FCF Yield", "value": "N/A (data mismatch)", "pts": 0, "max": 8})
+            return sb
         if fcf_yield > 8:
             pts = 8
         elif fcf_yield > 5:
@@ -433,10 +445,8 @@ def _score_valuation(info: dict) -> ScoreBreakdown:
         sb.details.append({"label": "Forward P/E", "value": "N/A", "pts": 0, "max": 8})
 
     pb = _safe(info.get("priceToBook"))
-    if pb is not None:
-        if pb < 0:
-            pts = 0
-        elif pb < 1.5:
+    if pb is not None and pb > 0.05:
+        if pb < 1.5:
             pts = 8
         elif pb < 3:
             pts = 6
@@ -457,7 +467,7 @@ def _score_valuation(info: dict) -> ScoreBreakdown:
 # ---------------------------------------------------------------------------
 # 3. Dividends  (max 25 pts)
 # ---------------------------------------------------------------------------
-def _score_dividends(info: dict, symbol: str) -> ScoreBreakdown:
+def _score_dividends(info: dict, symbol: str, val_data: Optional[dict] = None) -> ScoreBreakdown:
     sb = ScoreBreakdown(max_score=25)
 
     div_yield = _safe(info.get("dividendYield"))
@@ -495,27 +505,47 @@ def _score_dividends(info: dict, symbol: str) -> ScoreBreakdown:
     else:
         sb.details.append({"label": "Payout Ratio", "value": "N/A", "pts": 0, "max": 8})
 
-    try:
-        _throttle()
-        divs = get_dividends(symbol)
-        if divs is not None and len(divs) > 0:
-            years_with_divs = divs.index.year.nunique()
-            if years_with_divs >= 15:
-                pts = 9
-            elif years_with_divs >= 10:
-                pts = 7
-            elif years_with_divs >= 5:
-                pts = 5
-            elif years_with_divs >= 2:
-                pts = 3
-            else:
-                pts = 1
-            sb.score += pts
-            sb.details.append({"label": "Dividend History", "value": f"{years_with_divs} yrs", "pts": pts, "max": 9})
+    # Prefer SecuritiesDB consecutive increase streak; fall back to Yahoo dividend history
+    sdb_streak = None
+    if val_data and val_data.get("dividends"):
+        sdb_streak = val_data["dividends"].get("consecutive_annual_increases")
+
+    if sdb_streak is not None and sdb_streak > 0:
+        years_val = int(sdb_streak)
+        if years_val >= 15:
+            pts = 9
+        elif years_val >= 10:
+            pts = 7
+        elif years_val >= 5:
+            pts = 5
+        elif years_val >= 2:
+            pts = 3
         else:
-            sb.details.append({"label": "Dividend History", "value": "None", "pts": 0, "max": 9})
-    except Exception:
-        sb.details.append({"label": "Dividend History", "value": "N/A", "pts": 0, "max": 9})
+            pts = 1
+        sb.score += pts
+        sb.details.append({"label": "Dividend History", "value": f"{years_val} yrs consecutive increases", "pts": pts, "max": 9})
+    else:
+        try:
+            _throttle()
+            divs = get_dividends(symbol)
+            if divs is not None and len(divs) > 0:
+                years_with_divs = divs.index.year.nunique()
+                if years_with_divs >= 15:
+                    pts = 9
+                elif years_with_divs >= 10:
+                    pts = 7
+                elif years_with_divs >= 5:
+                    pts = 5
+                elif years_with_divs >= 2:
+                    pts = 3
+                else:
+                    pts = 1
+                sb.score += pts
+                sb.details.append({"label": "Dividend History", "value": f"{years_with_divs} yrs", "pts": pts, "max": 9})
+            else:
+                sb.details.append({"label": "Dividend History", "value": "None", "pts": 0, "max": 9})
+        except Exception:
+            sb.details.append({"label": "Dividend History", "value": "N/A", "pts": 0, "max": 9})
 
     return sb
 
@@ -630,17 +660,102 @@ def _fetch_finnhub(symbol: str) -> Optional[dict]:
     }
 
 
-def _fetch_fmp(symbol: str) -> Optional[dict]:
-    """Fetch all FMP data for a symbol in one pass."""
-    if not fmp_api.is_configured():
+def _fetch_valuation_data(symbol: str, info: dict = None, summary: dict = None) -> Optional[dict]:
+    """Fetch DCF, quant health, and dividend data from SecuritiesDB.
+
+    Falls back to Yahoo ratios for non-US stocks where SecuritiesDB has no data.
+    """
+    dcf = securitiesdb_api.get_dcf(symbol)
+    quant = securitiesdb_api.get_quant_health(symbol)
+    div_summary = securitiesdb_api.get_dividends(symbol)
+    insider = securitiesdb_api.get_insider_activity(symbol)
+
+    if not quant and info:
+        quant = _build_yahoo_quant_fallback(info)
+        logger.info(f"{symbol}: using Yahoo ratios fallback for quant data")
+
+    if not dcf and info:
+        dcf = _build_yahoo_dcf_fallback(info)
+        if dcf:
+            logger.info(f"{symbol}: using Yahoo DCF fallback")
+
+    yahoo_inst = None
+    if summary:
+        yahoo_inst = extract_institutional(summary)
+        if yahoo_inst:
+            logger.info(f"{symbol}: extracted Yahoo institutional ownership data")
+
+    if not dcf and not quant and not div_summary and not insider and not yahoo_inst:
         return None
+    return {"dcf": dcf, "quant": quant, "dividends": div_summary, "insider": insider, "yahoo_institutional": yahoo_inst}
+
+
+def _build_yahoo_quant_fallback(info: dict) -> Optional[dict]:
+    """Build quant-health-like structure from Yahoo's financialData."""
+    cr = _safe(info.get("currentRatio"))
+    de_raw = _safe(info.get("debtToEquity"))
+    de = de_raw / 100.0 if de_raw is not None else None
+    npm = _safe(info.get("profitMargins"))
+    roe = _safe(info.get("returnOnEquity"))
+    gm = _safe(info.get("grossMargins"))
+    om = _safe(info.get("operatingMargins"))
+    beta = _safe(info.get("beta"))
+
+    has_data = any(v is not None for v in [cr, de, npm, roe, gm, om, beta])
+    if not has_data:
+        return None
+
     return {
-        "dcf": fmp_api.get_dcf(symbol),
-        "ratios": fmp_api.get_financial_ratios(symbol),
+        "scores": {},
+        "value_creation": {},
+        "profitability": {
+            "gross_margin": gm,
+            "net_margin": npm,
+        },
+        "growth": {},
+        "leverage": {
+            "current_ratio": cr,
+            "debt_to_equity": de,
+        },
+        "risk": {
+            "volatility_annual": None,
+            "sharpe_ratio_1y": None,
+            "max_drawdown_3y": None,
+        },
+        "valuation": {},
     }
 
 
-def _score_sentiment(fh_data: Optional[dict]) -> Optional[ScoreBreakdown]:
+def _build_yahoo_dcf_fallback(info: dict) -> Optional[dict]:
+    """Estimate a simple DCF fair value from Yahoo's freeCashflow + marketCap."""
+    fcf = _safe(info.get("freeCashflow"))
+    mcap = _safe(info.get("marketCap"))
+    price = _safe(info.get("currentPrice")) or _safe(info.get("regularMarketPrice"))
+
+    if not fcf or fcf <= 0 or not mcap or mcap <= 0 or not price or price <= 0:
+        return None
+
+    wacc = 0.10
+    growth = 0.03
+    terminal_value = fcf * (1 + growth) / (wacc - growth)
+
+    shares = mcap / price
+    if shares <= 0:
+        return None
+    fair_value = terminal_value / shares
+
+    if fair_value <= 0:
+        return None
+
+    return {
+        "fair_value": round(fair_value, 2),
+        "upside_pct": round((fair_value - price) / price * 100, 2),
+        "wacc": wacc,
+        "terminal_growth_rate": growth,
+    }
+
+
+def _score_sentiment(fh_data: Optional[dict], val_data: Optional[dict] = None) -> Optional[ScoreBreakdown]:
     if fh_data is None:
         return None
 
@@ -706,32 +821,120 @@ def _score_sentiment(fh_data: Optional[dict]) -> Optional[ScoreBreakdown]:
     else:
         sb.details.append({"label": "Earnings Surprises", "value": "N/A", "pts": 0, "max": 9})
 
-    # --- Insider transactions (max 8) ---
-    insider_data = fh_data["insider"]
-    if insider_data and isinstance(insider_data, dict):
-        txns = insider_data.get("data", [])
-        if txns:
-            net_shares = sum(t.get("change", 0) for t in txns[:20])
-            if net_shares > 0:
-                pts = 8
-                signal = "Net buying"
-            elif net_shares == 0:
-                pts = 4
-                signal = "Neutral"
+    # --- Insider transactions (max 4) ---
+    sdb_insider = val_data.get("insider") if val_data else None
+    insider_scored = False
+
+    if sdb_insider and sdb_insider.get("insider_transactions"):
+        itx = sdb_insider["insider_transactions"]
+        buy_val = itx.get("total_buy_value") or 0
+        sell_val = itx.get("total_sell_value") or 0
+        ratio = itx.get("net_buy_sell_ratio")
+        recent = itx.get("recent") or []
+        buys = sum(1 for t in recent if t.get("type", "").lower() in ("purchase", "buy"))
+        sells = sum(1 for t in recent if t.get("type", "").lower() in ("sale", "sell"))
+
+        if buy_val > sell_val or buys > sells:
+            pts = 4
+            signal = "Net buying"
+        elif buy_val == sell_val and buys == sells:
+            pts = 2
+            signal = "Neutral"
+        else:
+            pts = 1
+            signal = "Net selling"
+        sb.score += pts
+        count_str = f"{len(recent)} txns" if recent else "No recent"
+        sb.details.append({
+            "label": "Insider Activity",
+            "value": f"{signal} ({count_str})",
+            "pts": pts, "max": 4,
+        })
+        insider_scored = True
+
+    if not insider_scored:
+        insider_data = fh_data.get("insider")
+        if insider_data and isinstance(insider_data, dict):
+            txns = insider_data.get("data", [])
+            if txns:
+                net_shares = sum(t.get("change", 0) for t in txns[:20])
+                if net_shares > 0:
+                    pts = 4
+                    signal = "Net buying"
+                elif net_shares == 0:
+                    pts = 2
+                    signal = "Neutral"
+                else:
+                    pts = 1
+                    signal = "Net selling"
+                sb.score += pts
+                sb.details.append({
+                    "label": "Insider Activity",
+                    "value": f"{signal} ({net_shares:+,.0f} shares)",
+                    "pts": pts, "max": 4,
+                })
             else:
+                sb.details.append({"label": "Insider Activity", "value": "No recent", "pts": 2, "max": 4})
+                sb.score += 2
+        else:
+            sb.details.append({"label": "Insider Activity", "value": "N/A", "pts": 0, "max": 4})
+
+    # --- Institutional Flow / Smart Money (max 4) ---
+    smart_money_scored = False
+
+    if sdb_insider and sdb_insider.get("institutional_flow"):
+        flows = sdb_insider["institutional_flow"]
+        increased = sum(1 for f in flows if f.get("action") in ("Increased", "New"))
+        decreased = sum(1 for f in flows if f.get("action") in ("Decreased", "Exited"))
+        total_funds = len(flows)
+
+        if total_funds > 0:
+            bull_pct = increased / total_funds * 100
+            if bull_pct >= 60:
+                pts = 4
+            elif bull_pct >= 40:
+                pts = 3
+            elif bull_pct >= 20:
                 pts = 2
-                signal = "Net selling"
+            else:
+                pts = 1
             sb.score += pts
             sb.details.append({
-                "label": "Insider Activity",
-                "value": f"{signal} ({net_shares:+,.0f} shares)",
-                "pts": pts, "max": 8,
+                "label": "Smart Money (13F)",
+                "value": f"{increased} buying, {decreased} selling ({total_funds} funds)",
+                "pts": pts, "max": 4,
+            })
+            smart_money_scored = True
+
+    if not smart_money_scored:
+        yahoo_inst = val_data.get("yahoo_institutional") if val_data else None
+        if yahoo_inst and yahoo_inst.get("total", 0) > 0:
+            inc = yahoo_inst.get("increased", 0)
+            dec = yahoo_inst.get("decreased", 0)
+            total_h = yahoo_inst["total"]
+            if total_h > 0:
+                bull_pct = inc / total_h * 100
+                if bull_pct >= 60:
+                    pts = 4
+                elif bull_pct >= 40:
+                    pts = 3
+                elif bull_pct >= 20:
+                    pts = 2
+                else:
+                    pts = 1
+            else:
+                pts = 2
+            sb.score += pts
+            holders_str = ", ".join(
+                h["name"] for h in (yahoo_inst.get("holders") or [])[:3] if h.get("name")
+            ) or "institutional holders"
+            sb.details.append({
+                "label": "Smart Money",
+                "value": f"{inc} increasing, {dec} decreasing ({total_h} holders: {holders_str})",
+                "pts": pts, "max": 4,
             })
         else:
-            sb.details.append({"label": "Insider Activity", "value": "No recent activity", "pts": 4, "max": 8})
-            sb.score += 4
-    else:
-        sb.details.append({"label": "Insider Activity", "value": "N/A", "pts": 0, "max": 8})
+            sb.details.append({"label": "Smart Money", "value": "N/A", "pts": 0, "max": 4})
 
     if sb.score == 0:
         return None
@@ -741,27 +944,27 @@ def _score_sentiment(fh_data: Optional[dict]) -> Optional[ScoreBreakdown]:
 # ---------------------------------------------------------------------------
 # 6. Fair Value  (max 25 pts) — FMP
 # ---------------------------------------------------------------------------
-def _score_fair_value(fmp_data: Optional[dict], current_price: float) -> Optional[ScoreBreakdown]:
-    if fmp_data is None:
+def _score_fair_value(val_data: Optional[dict], current_price: float) -> Optional[ScoreBreakdown]:
+    if val_data is None:
         return None
 
     sb = ScoreBreakdown(max_score=25)
+    dcf = val_data.get("dcf")
+    quant = val_data.get("quant")
 
-    # --- DCF intrinsic value vs market price (max 10) ---
-    dcf_data = fmp_data["dcf"]
-    if dcf_data and isinstance(dcf_data, list) and len(dcf_data) > 0:
-        dcf_val = dcf_data[0].get("dcf")
-        if dcf_val and current_price and current_price > 0:
-            dcf_val = float(dcf_val)
+    # --- DCF intrinsic value vs market price (max 8) ---
+    if dcf and dcf.get("fair_value"):
+        dcf_val = float(dcf["fair_value"])
+        if current_price and current_price > 0 and 0.1 * current_price <= dcf_val <= 10 * current_price:
             margin = (dcf_val - current_price) / current_price * 100
             if margin > 30:
-                pts = 10
-            elif margin > 15:
                 pts = 8
-            elif margin > 0:
+            elif margin > 15:
                 pts = 6
+            elif margin > 0:
+                pts = 5
             elif margin > -15:
-                pts = 4
+                pts = 3
             elif margin > -30:
                 pts = 2
             else:
@@ -770,41 +973,36 @@ def _score_fair_value(fmp_data: Optional[dict], current_price: float) -> Optiona
             sb.details.append({
                 "label": "DCF Fair Value",
                 "value": f"${dcf_val:.2f} ({margin:+.1f}% vs price)",
-                "pts": pts, "max": 10,
+                "pts": pts, "max": 8,
             })
         else:
-            sb.details.append({"label": "DCF Fair Value", "value": "N/A", "pts": 0, "max": 10})
+            sb.details.append({"label": "DCF Fair Value", "value": "N/A", "pts": 0, "max": 8})
     else:
-        sb.details.append({"label": "DCF Fair Value", "value": "N/A", "pts": 0, "max": 10})
+        sb.details.append({"label": "DCF Fair Value", "value": "N/A", "pts": 0, "max": 8})
 
-    # --- Financial health: current ratio + debt/equity (max 8) ---
-    ratios = fmp_data["ratios"]
-    if ratios and isinstance(ratios, list) and len(ratios) > 0:
-        r = ratios[0]
-        cr = r.get("currentRatio")
-        de = r.get("debtToEquityRatio")
+    if quant:
+        # --- Financial health: current ratio + debt/equity (max 6) ---
+        leverage = quant.get("leverage") or {}
+        cr = leverage.get("current_ratio")
+        de = leverage.get("debt_to_equity")
         health_pts = 0
 
         if cr is not None:
             cr = float(cr)
             if cr >= 2.0:
-                health_pts += 4
-            elif cr >= 1.5:
                 health_pts += 3
-            elif cr >= 1.0:
+            elif cr >= 1.5:
                 health_pts += 2
-            else:
+            elif cr >= 1.0:
                 health_pts += 1
 
         if de is not None:
             de = float(de)
             if de < 0.5:
-                health_pts += 4
-            elif de < 1.0:
                 health_pts += 3
-            elif de < 2.0:
+            elif de < 1.0:
                 health_pts += 2
-            else:
+            elif de < 2.0:
                 health_pts += 1
 
         sb.score += health_pts
@@ -813,17 +1011,18 @@ def _score_fair_value(fmp_data: Optional[dict], current_price: float) -> Optiona
         sb.details.append({
             "label": "Financial Health",
             "value": f"{cr_str}, {de_str}",
-            "pts": health_pts, "max": 8,
+            "pts": health_pts, "max": 6,
         })
 
-        # --- Profitability: net profit margin (max 7) ---
-        npm = r.get("netProfitMargin")
+        # --- Net Profit Margin (max 5) ---
+        prof = quant.get("profitability") or {}
+        npm = prof.get("net_margin")
         if npm is not None:
             npm_pct = float(npm) * 100
             if npm_pct > 20:
-                pts = 7
-            elif npm_pct > 12:
                 pts = 5
+            elif npm_pct > 12:
+                pts = 4
             elif npm_pct > 5:
                 pts = 3
             elif npm_pct > 0:
@@ -834,13 +1033,170 @@ def _score_fair_value(fmp_data: Optional[dict], current_price: float) -> Optiona
             sb.details.append({
                 "label": "Net Profit Margin",
                 "value": f"{npm_pct:.1f}%",
-                "pts": pts, "max": 7,
+                "pts": pts, "max": 5,
             })
         else:
-            sb.details.append({"label": "Net Profit Margin", "value": "N/A", "pts": 0, "max": 7})
+            sb.details.append({"label": "Net Profit Margin", "value": "N/A", "pts": 0, "max": 5})
+
+        # --- ROIC vs WACC (max 6) ---
+        vc = quant.get("value_creation") or {}
+        roic = vc.get("roic")
+        wacc = vc.get("wacc")
+        spread = vc.get("roic_wacc_spread")
+        eva = vc.get("economic_value_added", "")
+        if spread is not None:
+            spread_pct = float(spread) * 100
+            if spread_pct > 20:
+                pts = 6
+            elif spread_pct > 10:
+                pts = 5
+            elif spread_pct > 0:
+                pts = 4
+            elif spread_pct > -5:
+                pts = 2
+            else:
+                pts = 1
+            sb.score += pts
+            roic_str = f"{float(roic)*100:.1f}%" if roic is not None else "N/A"
+            wacc_str = f"{float(wacc)*100:.1f}%" if wacc is not None else "N/A"
+            sb.details.append({
+                "label": "ROIC vs WACC",
+                "value": f"{roic_str} vs {wacc_str} ({eva})",
+                "pts": pts, "max": 6,
+            })
+        else:
+            sb.details.append({"label": "ROIC vs WACC", "value": "N/A", "pts": 0, "max": 6})
     else:
-        sb.details.append({"label": "Financial Health", "value": "N/A", "pts": 0, "max": 8})
-        sb.details.append({"label": "Net Profit Margin", "value": "N/A", "pts": 0, "max": 7})
+        sb.details.append({"label": "Financial Health", "value": "N/A", "pts": 0, "max": 6})
+        sb.details.append({"label": "Net Profit Margin", "value": "N/A", "pts": 0, "max": 5})
+        sb.details.append({"label": "ROIC vs WACC", "value": "N/A", "pts": 0, "max": 6})
+
+    if sb.score == 0:
+        return None
+    return sb
+
+
+# ---------------------------------------------------------------------------
+# Risk & Quality scoring (SecuritiesDB quant-health)
+# ---------------------------------------------------------------------------
+def _score_risk_quality(val_data: Optional[dict]) -> Optional[ScoreBreakdown]:
+    if val_data is None:
+        return None
+    quant = val_data.get("quant")
+    if not quant:
+        return None
+
+    sb = ScoreBreakdown(max_score=25)
+    scores = quant.get("scores") or {}
+    risk = quant.get("risk") or {}
+
+    # --- Piotroski F-Score (max 8) ---
+    piotroski = scores.get("piotroski_f")
+    if piotroski is not None:
+        piotroski = int(piotroski)
+        if piotroski >= 7:
+            pts = 8
+        elif piotroski >= 5:
+            pts = 5
+        elif piotroski >= 3:
+            pts = 3
+        else:
+            pts = 1
+        sb.score += pts
+        label = "Strong" if piotroski >= 7 else "Average" if piotroski >= 4 else "Weak"
+        sb.details.append({
+            "label": "Piotroski F-Score",
+            "value": f"{piotroski}/9 ({label})",
+            "pts": pts, "max": 8,
+        })
+    else:
+        sb.details.append({"label": "Piotroski F-Score", "value": "N/A", "pts": 0, "max": 8})
+
+    # --- Altman Z-Score (max 6) ---
+    altman = scores.get("altman_z")
+    zone = scores.get("altman_z_zone", "")
+    if altman is not None:
+        altman = float(altman)
+        if altman > 2.99:
+            pts = 6
+        elif altman > 1.81:
+            pts = 3
+        else:
+            pts = 1
+        sb.score += pts
+        zone_label = zone.capitalize() if zone else ("Safe" if altman > 2.99 else "Grey" if altman > 1.81 else "Distress")
+        sb.details.append({
+            "label": "Altman Z-Score",
+            "value": f"{altman:.2f} ({zone_label})",
+            "pts": pts, "max": 6,
+        })
+    else:
+        sb.details.append({"label": "Altman Z-Score", "value": "N/A", "pts": 0, "max": 6})
+
+    # --- Beneish M-Score (max 4) ---
+    beneish = scores.get("beneish_m")
+    beneish_flag = scores.get("beneish_flag")
+    if beneish is not None:
+        beneish = float(beneish)
+        if beneish < -2.22:
+            pts = 4
+        elif beneish < -1.78:
+            pts = 2
+        else:
+            pts = 0
+        sb.score += pts
+        flag_str = "Likely manipulator" if beneish_flag else "Unlikely manipulator"
+        sb.details.append({
+            "label": "Beneish M-Score",
+            "value": f"{beneish:.2f} ({flag_str})",
+            "pts": pts, "max": 4,
+        })
+    else:
+        sb.details.append({"label": "Beneish M-Score", "value": "N/A", "pts": 0, "max": 4})
+
+    # --- Sharpe Ratio 1Y (max 4) ---
+    sharpe = risk.get("sharpe_ratio_1y")
+    if sharpe is not None:
+        sharpe = float(sharpe)
+        if sharpe >= 1.5:
+            pts = 4
+        elif sharpe >= 1.0:
+            pts = 3
+        elif sharpe >= 0.5:
+            pts = 2
+        elif sharpe >= 0:
+            pts = 1
+        else:
+            pts = 0
+        sb.score += pts
+        sb.details.append({
+            "label": "Sharpe Ratio (1Y)",
+            "value": f"{sharpe:.2f}",
+            "pts": pts, "max": 4,
+        })
+    else:
+        sb.details.append({"label": "Sharpe Ratio (1Y)", "value": "N/A", "pts": 0, "max": 4})
+
+    # --- Max Drawdown 3Y (max 3) ---
+    drawdown = risk.get("max_drawdown_3y")
+    if drawdown is not None:
+        dd_pct = abs(float(drawdown)) * 100
+        if dd_pct < 15:
+            pts = 3
+        elif dd_pct < 30:
+            pts = 2
+        elif dd_pct < 50:
+            pts = 1
+        else:
+            pts = 0
+        sb.score += pts
+        sb.details.append({
+            "label": "Max Drawdown (3Y)",
+            "value": f"-{dd_pct:.1f}%",
+            "pts": pts, "max": 3,
+        })
+    else:
+        sb.details.append({"label": "Max Drawdown (3Y)", "value": "N/A", "pts": 0, "max": 3})
 
     if sb.score == 0:
         return None
@@ -855,16 +1211,16 @@ def _predict_price(
     hist: pd.DataFrame,
     current_price: float,
     fh_data: Optional[dict] = None,
-    fmp_data: Optional[dict] = None,
+    val_data: Optional[dict] = None,
 ) -> dict:
     """
     Multi-source 6-month price prediction.
 
     Signals (weighted dynamically based on availability):
-      - Analyst consensus target  (Yahoo)   — base weight 40
-      - Trend projection          (Yahoo)   — base weight 25
-      - DCF intrinsic value       (FMP)     — base weight 20
-      - Earnings momentum adj.    (Finnhub) — applied as a ±modifier
+      - Analyst consensus target  (Yahoo)         — base weight 40
+      - Trend projection          (Yahoo)         — base weight 25
+      - DCF intrinsic value       (SecuritiesDB)  — base weight 20
+      - Earnings momentum adj.    (Finnhub)       — applied as a ±modifier
     """
     pred = {
         "current": round(current_price, 2),
@@ -912,14 +1268,14 @@ def _predict_price(
                 pred["trend_6m"] = round(trend_target, 2)
                 pred["trend_direction"] = "up" if slope > 0 else "down"
 
-    # --- 3. DCF intrinsic value (FMP) ---
+    # --- 3. DCF intrinsic value (SecuritiesDB) ---
     dcf_target = None
-    if fmp_data:
-        dcf_list = fmp_data.get("dcf")
-        if dcf_list and isinstance(dcf_list, list) and len(dcf_list) > 0:
-            raw_dcf = dcf_list[0].get("dcf")
-            if raw_dcf and float(raw_dcf) > 0:
-                dcf_target = float(raw_dcf)
+    if val_data:
+        dcf = val_data.get("dcf")
+        if dcf and dcf.get("fair_value"):
+            raw_dcf = float(dcf["fair_value"])
+            if raw_dcf > 0 and 0.1 * current_price <= raw_dcf <= 10 * current_price:
+                dcf_target = raw_dcf
                 pred["dcf_value"] = round(dcf_target, 2)
 
     # --- 4. Earnings momentum modifier (Finnhub) ---
@@ -1000,23 +1356,24 @@ def analyze_stock(symbol: str) -> StockReport:
             logger.info(f"{symbol}: fetching chart data")
             hist = get_chart(symbol)
 
+            fh_data = _fetch_finnhub(symbol)
+            val_data = _fetch_valuation_data(symbol, info, summary)
+
             fund = _score_fundamentals(info)
             val = _score_valuation(info)
-            div = _score_dividends(info, symbol)
+            div = _score_dividends(info, symbol, val_data)
             tech = _score_technicals(hist)
 
-            fh_data = _fetch_finnhub(symbol)
-            fmp_data = _fetch_fmp(symbol)
-
-            sent = _score_sentiment(fh_data)
-            fv = _score_fair_value(fmp_data, price)
-            pred = _predict_price(info, hist, price, fh_data, fmp_data)
+            sent = _score_sentiment(fh_data, val_data)
+            fv = _score_fair_value(val_data, price)
+            rq = _score_risk_quality(val_data)
+            pred = _predict_price(info, hist, price, fh_data, val_data)
 
             report = StockReport(
                 ticker=symbol, name=name, sector=sector, industry=industry,
                 price=price, currency=currency,
                 fundamentals=fund, valuation=val, dividends=div, technicals=tech,
-                sentiment=sent, fair_value=fv,
+                sentiment=sent, fair_value=fv, risk_quality=rq,
                 prediction=pred,
             )
             logger.info(f"{symbol}: score={report.overall_pct:.0f}% ({report.rating})")
@@ -1037,20 +1394,29 @@ def analyze_stock(symbol: str) -> StockReport:
     return _empty_report(symbol, error="Max retries exceeded")
 
 
-def analyze_multiple(symbols: list[str]) -> list[dict]:
+def analyze_multiple(symbols: list[str], progress_cb=None) -> list[dict]:
     reports = []
+    total = len(symbols)
+    done = 0
     with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
         futures = {pool.submit(analyze_stock, s): s for s in symbols}
         for fut in as_completed(futures):
             reports.append(fut.result())
+            done += 1
+            if progress_cb:
+                progress_cb(done, total)
     reports.sort(key=lambda r: r.overall_pct, reverse=True)
     return [r.to_dict() for r in reports]
 
 
-def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] = None) -> list[dict]:
+def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] = None, progress_cb=None) -> list[dict]:
     """Two-phase scan: screener -> quick score -> deep analyze top candidates."""
     if not markets:
         markets = ["us"]
+
+    def _progress(pct, msg):
+        if progress_cb:
+            progress_cb(pct, msg)
 
     exchanges = []
     for m in markets:
@@ -1058,7 +1424,7 @@ def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] 
     if not exchanges:
         exchanges = ["NMS", "NYQ"]
 
-    # Phase 1: Screener fetch
+    _progress(5, f"Screening {len(exchanges)} exchanges...")
     logger.info(f"Phase 1: Screening exchanges {exchanges} (max_price={max_price})")
     try:
         quotes = screen_stocks(exchanges, max_price=max_price, size=_SCREENER_SIZE)
@@ -1070,7 +1436,6 @@ def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] 
         logger.warning("Screener returned no results")
         return []
 
-    # Filter out tickers with exchange suffixes not available on Lightyear
     import re
     _SUFFIX_RE = re.compile(r"\.[A-Z]{1,4}$")
     filtered = []
@@ -1078,19 +1443,17 @@ def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] 
         sym = q.get("symbol")
         if not sym:
             continue
-        # Skip preferred shares (e.g. JPM-PC, BAC-PK)
         if "-" in sym:
             parts = sym.split("-")
             if len(parts) == 2 and len(parts[1]) <= 2:
                 continue
-        # Skip tickers with a dot suffix (e.g. SAP.DE, MC.PA, SAN.MC)
         if _SUFFIX_RE.search(sym):
             continue
         filtered.append(q)
 
+    _progress(15, f"Filtered {len(filtered)} from {len(quotes)} — scoring...")
     logger.info(f"After filtering: {len(filtered)} of {len(quotes)}")
 
-    # Quick-score each quote and pick top candidates
     scored = []
     for q in filtered:
         sym = q.get("symbol")
@@ -1105,10 +1468,15 @@ def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] 
         f"top {len(candidates)} candidates for deep analysis"
     )
 
-    # Phase 2: Deep analysis on top candidates
     symbols = [sym for _, sym, _ in candidates]
+    _progress(20, f"Deep-analyzing {len(symbols)} stocks...")
     logger.info(f"Phase 2: Deep-analyzing {len(symbols)} stocks")
-    all_results = analyze_multiple(symbols)
+
+    def _analysis_progress(done, total):
+        pct = 20 + int(done / max(total, 1) * 75)
+        _progress(pct, f"Analyzing {done}/{total} stocks...")
+
+    all_results = analyze_multiple(symbols, progress_cb=_analysis_progress)
 
     good = [r for r in all_results if not r.get("error")]
     return good[:top_n]
@@ -1142,10 +1510,14 @@ def _upside_score(quote: dict) -> float:
     return analyst_upside * 0.5 + recovery_pct * 0.3 + fpe_bonus * 0.2
 
 
-def gamble_stocks(top_n: int = 30, max_price: float = None, markets: list[str] = None) -> list[dict]:
+def gamble_stocks(top_n: int = 30, max_price: float = None, markets: list[str] = None, progress_cb=None) -> list[dict]:
     """Find high-upside, riskier stocks — sorted by predicted gains, not safety."""
     if not markets:
         markets = ["us"]
+
+    def _progress(pct, msg):
+        if progress_cb:
+            progress_cb(pct, msg)
 
     exchanges = []
     for m in markets:
@@ -1153,6 +1525,7 @@ def gamble_stocks(top_n: int = 30, max_price: float = None, markets: list[str] =
     if not exchanges:
         exchanges = ["NMS", "NYQ"]
 
+    _progress(5, f"Screening {len(exchanges)} exchanges...")
     logger.info(f"Gamble mode: Screening exchanges {exchanges} (max_price={max_price})")
     try:
         quotes = screen_stocks(exchanges, max_price=max_price, size=_SCREENER_SIZE)
@@ -1163,7 +1536,6 @@ def gamble_stocks(top_n: int = 30, max_price: float = None, markets: list[str] =
     if not quotes:
         return []
 
-    # Same ticker filter as suggest
     import re
     _SUFFIX_RE = re.compile(r"\.[A-Z]{1,4}$")
     filtered = []
@@ -1179,12 +1551,13 @@ def gamble_stocks(top_n: int = 30, max_price: float = None, markets: list[str] =
             continue
         filtered.append(q)
 
-    # Rank by upside potential instead of quality
+    _progress(15, f"Ranking {len(filtered)} stocks by upside potential...")
+
     scored = []
     for q in filtered:
         sym = q.get("symbol")
         us = _upside_score(q)
-        if us > 5:  # only consider stocks with >5% predicted upside
+        if us > 5:
             scored.append((us, sym, q))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -1196,11 +1569,16 @@ def gamble_stocks(top_n: int = 30, max_price: float = None, markets: list[str] =
     )
 
     symbols = [sym for _, sym, _ in candidates]
+    _progress(20, f"Deep-analyzing {len(symbols)} high-upside stocks...")
     logger.info(f"Gamble Phase 2: Deep-analyzing {len(symbols)} stocks")
-    all_results = analyze_multiple(symbols)
+
+    def _analysis_progress(done, total):
+        pct = 20 + int(done / max(total, 1) * 75)
+        _progress(pct, f"Analyzing {done}/{total} stocks...")
+
+    all_results = analyze_multiple(symbols, progress_cb=_analysis_progress)
 
     good = [r for r in all_results if not r.get("error")]
-    # Sort by predicted upside, not overall score
     good.sort(
         key=lambda r: (r.get("prediction") or {}).get("upside_pct") or 0,
         reverse=True,
@@ -1214,7 +1592,7 @@ def _empty_report(symbol, error="Unknown error"):
         ticker=symbol, name=symbol, sector="N/A", industry="N/A",
         price=0, currency="USD",
         fundamentals=empty, valuation=empty, dividends=empty, technicals=empty,
-        sentiment=None, fair_value=None,
+        sentiment=None, fair_value=None, risk_quality=None,
         error=error,
     )
 
@@ -1235,6 +1613,10 @@ def _report_from_dict(d: dict) -> StockReport:
     if d.get("fair_value"):
         fv = _to_breakdown(d["fair_value"])
 
+    rq = None
+    if d.get("risk_quality"):
+        rq = _to_breakdown(d["risk_quality"])
+
     return StockReport(
         ticker=d["ticker"], name=d["name"],
         sector=d.get("sector", "N/A"), industry=d.get("industry", "N/A"),
@@ -1245,6 +1627,7 @@ def _report_from_dict(d: dict) -> StockReport:
         technicals=_to_breakdown(d.get("technicals", {})),
         sentiment=sent,
         fair_value=fv,
+        risk_quality=rq,
         prediction=d.get("prediction"),
         error=d.get("error"),
     )

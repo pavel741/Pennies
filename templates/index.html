@@ -463,7 +463,30 @@
     display: none;
     justify-content: flex-end;
   }
-  .export-bar.show { display: flex; }
+  .export-bar.show { display: flex; gap: 10px; }
+  .cache-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: .85rem;
+    color: var(--text2);
+  }
+  .refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--yellow);
+    font-size: .85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .2s, border-color .2s;
+  }
+  .refresh-btn:hover { background: var(--surface2); border-color: var(--yellow); }
+  .refresh-btn svg { width: 16px; height: 16px; fill: currentColor; }
   .export-btn {
     display: inline-flex;
     align-items: center;
@@ -541,11 +564,11 @@
       <input type="number" id="maxPrice" value="50" min="1" step="1">
     </div>
     <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
-      <button class="cta-btn" id="suggestBtn" onclick="runSuggest()">
+      <button class="cta-btn" id="suggestBtn" onclick="runSuggest(false)">
         <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
         Suggest Stocks
       </button>
-      <button class="cta-btn gamble-btn" id="gambleBtn" onclick="runGamble()">
+      <button class="cta-btn gamble-btn" id="gambleBtn" onclick="runGamble(false)">
         <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm2-8c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2z"/></svg>
         Gamble
       </button>
@@ -568,6 +591,11 @@
   <div class="status" id="status"></div>
 
   <div class="export-bar" id="exportBar">
+    <span class="cache-info" id="cacheInfo"></span>
+    <button class="refresh-btn" id="refreshBtn" onclick="forceRefresh()" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+      Refresh
+    </button>
     <button class="export-btn" onclick="exportPDF()">
       <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zm-3 9v4h2v-4h3l-4-4-4 4h3zm-4 6v2h12v-2H6z"/></svg>
       Export PDF
@@ -584,7 +612,10 @@ const resultsEl  = document.getElementById('results');
 const progressWrap = document.getElementById('progressWrap');
 const progressBar  = document.getElementById('progressBar');
 const exportBar    = document.getElementById('exportBar');
+const cacheInfo    = document.getElementById('cacheInfo');
+const refreshBtn   = document.getElementById('refreshBtn');
 let lastResults = [];
+let lastMode = null;
 
 document.querySelectorAll('.market-chip').forEach(chip => {
   chip.addEventListener('click', () => {
@@ -602,29 +633,75 @@ function toggleLookup() {
   document.getElementById('lookupArea').classList.toggle('open');
 }
 
-function showProgress() {
-  progressWrap.classList.add('show');
-  progressBar.style.width = '0%';
-  let pct = 0;
-  const interval = setInterval(() => {
-    pct += Math.random() * 8 + 2;
-    if (pct > 90) pct = 90;
-    progressBar.style.width = pct + '%';
-  }, 600);
-  return interval;
+function formatAge(minutes) {
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return minutes + 'min ago';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h + 'h ' + (m > 0 ? m + 'min' : '') + ' ago';
 }
 
-function hideProgress(interval) {
-  clearInterval(interval);
+function showCacheInfo(ageMin) {
+  cacheInfo.textContent = 'Cached ' + formatAge(ageMin);
+  refreshBtn.style.display = '';
+}
+
+function hideCacheInfo() {
+  cacheInfo.textContent = '';
+  refreshBtn.style.display = 'none';
+}
+
+function forceRefresh() {
+  if (!lastMode) return;
+  if (lastMode === 'suggest') runSuggest(true);
+  else if (lastMode === 'gamble') runGamble(true);
+}
+
+function showProgress(pct) {
+  progressWrap.classList.add('show');
+  progressBar.style.width = (pct || 0) + '%';
+}
+
+function updateProgress(pct) {
+  progressBar.style.width = Math.min(pct, 100) + '%';
+}
+
+function hideProgress() {
   progressBar.style.width = '100%';
   setTimeout(() => { progressWrap.classList.remove('show'); progressBar.style.width = '0%'; }, 400);
 }
 
-async function runSuggest() {
+async function pollJob(jobId) {
+  while (true) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const resp = await fetch('/api/job/' + jobId);
+      const data = await resp.json();
+      if (data.status === 'running') {
+        updateProgress(data.progress);
+        statusEl.innerHTML = '<span class="spinner"></span>' + (data.message || 'Working...');
+      } else if (data.status === 'done') {
+        return data;
+      } else if (data.status === 'failed') {
+        throw new Error(data.error || 'Analysis failed');
+      }
+    } catch (err) {
+      if (err.message && err.message !== 'Analysis failed') {
+        throw err;
+      }
+      throw err;
+    }
+  }
+}
+
+async function runSuggest(force) {
+  lastMode = 'suggest';
   suggestBtn.disabled = true;
+  document.getElementById('gambleBtn').disabled = true;
   resultsEl.innerHTML = '';
   statusEl.className = 'status';
-  const prog = showProgress();
+  hideCacheInfo();
+  showProgress(0);
 
   try {
     const maxPrice = parseFloat(document.getElementById('maxPrice').value) || null;
@@ -632,43 +709,57 @@ async function runSuggest() {
     if (markets.length === 0) {
       statusEl.className = 'status error';
       statusEl.textContent = 'Select at least one market.';
-      hideProgress(prog);
+      hideProgress();
       suggestBtn.disabled = false;
+      document.getElementById('gambleBtn').disabled = false;
       return;
     }
     const mktLabel = markets.map(m => m.toUpperCase()).join(', ');
-    statusEl.innerHTML = '<span class="spinner"></span>Screening ' + mktLabel + ' exchanges for candidates...';
-    const resp = await fetch('/suggest', {
+    statusEl.innerHTML = '<span class="spinner"></span>Starting analysis for ' + mktLabel + '...';
+
+    const startResp = await fetch('/suggest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ top: 30, max_price: maxPrice, markets }),
+      body: JSON.stringify({ top: 30, max_price: maxPrice, markets, force: !!force }),
     });
-    const data = await resp.json();
-    hideProgress(prog);
-    if (!resp.ok) {
-      statusEl.className = 'status error';
-      statusEl.textContent = data.error || 'Something went wrong.';
+    const startData = await startResp.json();
+
+    if (startData.cached) {
+      hideProgress();
+      const priceNote = maxPrice ? ` under $${maxPrice}` : '';
+      const mktNote = markets.map(m => m.toUpperCase()).join(', ');
+      statusEl.innerHTML = `Top <strong>${startData.results.length}</strong> suggestions${priceNote} from ${mktNote} — click any card for details`;
+      renderResults(startData.results);
+      showCacheInfo(startData.cache_age_min);
     } else {
+      if (!startResp.ok || !startData.job_id) {
+        throw new Error(startData.error || 'Failed to start analysis');
+      }
+      const data = await pollJob(startData.job_id);
+      hideProgress();
       const priceNote = maxPrice ? ` under $${maxPrice}` : '';
       const mktNote = markets.map(m => m.toUpperCase()).join(', ');
       statusEl.innerHTML = `Top <strong>${data.results.length}</strong> suggestions${priceNote} from ${mktNote} — click any card for details`;
       renderResults(data.results);
     }
   } catch (err) {
-    hideProgress(prog);
+    hideProgress();
     statusEl.className = 'status error';
-    statusEl.textContent = 'Network error — is the server running?';
+    statusEl.textContent = err.message || 'Network error — is the server running?';
   }
   suggestBtn.disabled = false;
+  document.getElementById('gambleBtn').disabled = false;
 }
 
-async function runGamble() {
+async function runGamble(force) {
+  lastMode = 'gamble';
   const gambleBtn = document.getElementById('gambleBtn');
   gambleBtn.disabled = true;
   suggestBtn.disabled = true;
   resultsEl.innerHTML = '';
   statusEl.className = 'status';
-  const prog = showProgress();
+  hideCacheInfo();
+  showProgress(0);
 
   try {
     const maxPrice = parseFloat(document.getElementById('maxPrice').value) || null;
@@ -676,31 +767,40 @@ async function runGamble() {
     if (markets.length === 0) {
       statusEl.className = 'status error';
       statusEl.textContent = 'Select at least one market.';
-      hideProgress(prog);
+      hideProgress();
       gambleBtn.disabled = false;
       suggestBtn.disabled = false;
       return;
     }
-    statusEl.innerHTML = '<span class="spinner"></span>Hunting for high-upside gambles...';
-    const resp = await fetch('/gamble', {
+    statusEl.innerHTML = '<span class="spinner"></span>Starting gamble analysis...';
+
+    const startResp = await fetch('/gamble', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ top: 30, max_price: maxPrice, markets }),
+      body: JSON.stringify({ top: 30, max_price: maxPrice, markets, force: !!force }),
     });
-    const data = await resp.json();
-    hideProgress(prog);
-    if (!resp.ok) {
-      statusEl.className = 'status error';
-      statusEl.textContent = data.error || 'Something went wrong.';
+    const startData = await startResp.json();
+
+    if (startData.cached) {
+      hideProgress();
+      const priceNote = maxPrice ? ` under $${maxPrice}` : '';
+      statusEl.innerHTML = `<strong>${startData.results.length}</strong> high-upside gambles${priceNote} — sorted by predicted gains. Higher risk!`;
+      renderResults(startData.results);
+      showCacheInfo(startData.cache_age_min);
     } else {
+      if (!startResp.ok || !startData.job_id) {
+        throw new Error(startData.error || 'Failed to start analysis');
+      }
+      const data = await pollJob(startData.job_id);
+      hideProgress();
       const priceNote = maxPrice ? ` under $${maxPrice}` : '';
       statusEl.innerHTML = `<strong>${data.results.length}</strong> high-upside gambles${priceNote} — sorted by predicted gains. Higher risk!`;
       renderResults(data.results);
     }
   } catch (err) {
-    hideProgress(prog);
+    hideProgress();
     statusEl.className = 'status error';
-    statusEl.textContent = 'Network error — is the server running?';
+    statusEl.textContent = err.message || 'Network error — is the server running?';
   }
   gambleBtn.disabled = false;
   suggestBtn.disabled = false;
@@ -715,7 +815,7 @@ async function runLookup(e) {
   resultsEl.innerHTML = '';
   statusEl.className = 'status';
   statusEl.innerHTML = '<span class="spinner"></span>Analyzing...';
-  const prog = showProgress();
+  showProgress(30);
 
   try {
     const resp = await fetch('/analyze', {
@@ -724,7 +824,7 @@ async function runLookup(e) {
       body: JSON.stringify({ tickers }),
     });
     const data = await resp.json();
-    hideProgress(prog);
+    hideProgress();
     if (!resp.ok) {
       statusEl.className = 'status error';
       statusEl.textContent = data.error || 'Something went wrong.';
@@ -733,7 +833,7 @@ async function runLookup(e) {
       renderResults(data.results);
     }
   } catch (err) {
-    hideProgress(prog);
+    hideProgress();
     statusEl.className = 'status error';
     statusEl.textContent = 'Network error — is the server running?';
   }
@@ -882,6 +982,7 @@ function renderResults(results) {
           ${buildSection('Technicals', r.technicals)}
           ${r.sentiment ? buildSection('Sentiment & Signals', r.sentiment) : ''}
           ${r.fair_value ? buildSection('Fair Value', r.fair_value) : ''}
+          ${r.risk_quality ? buildSection('Risk & Quality', r.risk_quality) : ''}
         </div>
       </div>
       <div class="card-actions">
@@ -1089,6 +1190,7 @@ function exportPDF() {
     ];
     if (r.sentiment) sections.push({ title: 'Sentiment & Signals', data: r.sentiment });
     if (r.fair_value) sections.push({ title: 'Fair Value', data: r.fair_value });
+    if (r.risk_quality) sections.push({ title: 'Risk & Quality', data: r.risk_quality });
     const colW = (usable - 6) / 2;
     const startY = y;
     let maxBottomY = y;

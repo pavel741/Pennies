@@ -136,6 +136,8 @@ def get_quote_summary(symbol: str) -> dict:
         "financialData",
         "summaryDetail",
         "earnings",
+        "institutionOwnership",
+        "fundOwnership",
     ])
     url = f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{symbol}"
     params = {"modules": modules, "crumb": crumb}
@@ -415,4 +417,55 @@ def extract_info(summary: dict) -> dict:
         "regularMarketChangePercent": _raw_val(price, "regularMarketChangePercent"),
         "sector": price.get("sector") if isinstance(price.get("sector"), str) else "N/A",
         "industry": price.get("industry") if isinstance(price.get("industry"), str) else "N/A",
+        "currentRatio": _raw_val(fin, "currentRatio"),
+        "debtToEquity": _raw_val(fin, "debtToEquity"),
+        "returnOnEquity": _raw_val(fin, "returnOnEquity"),
+        "returnOnAssets": _raw_val(fin, "returnOnAssets"),
+        "grossMargins": _raw_val(fin, "grossMargins"),
+        "operatingMargins": _raw_val(fin, "operatingMargins"),
+        "totalDebt": _raw_val(fin, "totalDebt"),
+        "totalCash": _raw_val(fin, "totalCash"),
+        "operatingCashflow": _raw_val(fin, "operatingCashflow"),
+        "enterpriseValue": _raw_val(stats, "enterpriseValue"),
+        "enterpriseToEbitda": _raw_val(stats, "enterpriseToEbitda"),
+        "beta": _raw_val(stats, "beta"),
+    }
+
+
+def extract_institutional(summary: dict) -> Optional[dict]:
+    """Extract institutional ownership data from quoteSummary."""
+    inst = summary.get("institutionOwnership", {})
+    fund = summary.get("fundOwnership", {})
+
+    inst_holders = inst.get("ownershipList") or []
+    fund_holders = fund.get("ownershipList") or []
+
+    if not inst_holders and not fund_holders:
+        return None
+
+    increased = 0
+    decreased = 0
+    holders = []
+    for h in inst_holders[:10]:
+        name = h.get("organization")
+        pct_held = _raw_val(h, "pctHeld")
+        pct_change = _raw_val(h, "pctChange")
+        position = _raw_val(h, "position")
+        if pct_change is not None:
+            if pct_change > 0:
+                increased += 1
+            elif pct_change < 0:
+                decreased += 1
+        holders.append({
+            "name": name,
+            "pct_held": round(pct_held * 100, 2) if pct_held else None,
+            "pct_change": round(pct_change * 100, 1) if pct_change else None,
+            "shares": int(position) if position else None,
+        })
+
+    return {
+        "holders": holders,
+        "increased": increased,
+        "decreased": decreased,
+        "total": len(inst_holders[:10]),
     }
