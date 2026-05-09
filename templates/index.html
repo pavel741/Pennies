@@ -520,6 +520,186 @@
   .card-action-btn:hover { border-color: var(--accent); color: var(--accent2); }
   .card-action-btn.added { border-color: var(--green); color: var(--green); cursor: default; }
 
+  /* ---- Strategy selector ---- */
+  .strategy-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    color: var(--text2);
+    font-size: .95rem;
+  }
+  .strategy-row select {
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: .9rem;
+    outline: none;
+    transition: border .2s;
+  }
+  .strategy-row select:focus { border-color: var(--accent); }
+
+  /* ---- Advanced filters ---- */
+  .adv-filter-toggle {
+    text-align: center;
+    margin-bottom: 12px;
+  }
+  .adv-filter-toggle button {
+    background: none;
+    border: none;
+    color: var(--text2);
+    font-size: .85rem;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .adv-filter-toggle button:hover { color: var(--accent2); }
+
+  .adv-filters {
+    display: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 18px;
+    padding: 14px 20px;
+    max-width: 700px;
+    margin-left: auto;
+    margin-right: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .adv-filters.open { display: flex; }
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .filter-group label {
+    font-size: .75rem;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: .4px;
+  }
+  .filter-group select {
+    padding: 7px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-size: .85rem;
+    outline: none;
+  }
+  .filter-group select:focus { border-color: var(--accent); }
+
+  /* ---- Scout / Tech signals ---- */
+  .scout-signals, .tech-setups {
+    max-width: 700px;
+    margin: 0 auto 16px;
+    padding: 14px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .signal-title {
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--accent2);
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    margin-bottom: 10px;
+  }
+  .signal-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* ---- Scout/Tech buttons ---- */
+  .scout-btn {
+    background: linear-gradient(135deg, #00b894, #00cec9);
+    box-shadow: 0 4px 24px rgba(0,206,201,.35);
+  }
+  .scout-btn:hover { box-shadow: 0 8px 32px rgba(0,206,201,.5); }
+  .tech-btn {
+    background: linear-gradient(135deg, #fdcb6e, #e17055);
+    box-shadow: 0 4px 24px rgba(225,112,85,.35);
+  }
+  .tech-btn:hover { box-shadow: 0 8px 32px rgba(225,112,85,.5); }
+  .reddit-btn {
+    background: linear-gradient(135deg, #ff6b35, #ff4500);
+    box-shadow: 0 4px 24px rgba(255,69,0,.35);
+  }
+  .reddit-btn:hover { box-shadow: 0 8px 32px rgba(255,69,0,.5); }
+  .reddit-badge {
+    display: inline-block;
+    background: rgba(255,69,0,.15);
+    color: #ff4500;
+    font-size: .72rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-right: 6px;
+    margin-top: 4px;
+  }
+
+  /* ---- News section ---- */
+  .news-section {
+    padding: 12px 22px;
+    border-top: 1px solid var(--border);
+  }
+  .news-item {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .news-item:last-child { border-bottom: none; }
+  .news-headline {
+    font-size: .88rem;
+    font-weight: 500;
+    color: var(--text);
+    text-decoration: none;
+    transition: color .2s;
+  }
+  .news-headline:hover { color: var(--accent2); }
+  .news-meta {
+    font-size: .75rem;
+    color: var(--text2);
+    margin-top: 3px;
+  }
+  .news-empty {
+    font-size: .85rem;
+    color: var(--text2);
+    font-style: italic;
+  }
+
+  /* ---- Signal badges on cards ---- */
+  .signal-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 22px;
+    border-top: 1px solid var(--border);
+  }
+  .signal-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: .75rem;
+    font-weight: 600;
+    background: rgba(0,206,201,.12);
+    color: var(--green);
+    border: 1px solid rgba(0,206,201,.25);
+  }
+  .signal-badge.earnings { background: rgba(108,92,231,.12); color: var(--accent2); border-color: rgba(108,92,231,.25); }
+  .signal-badge.insider { background: rgba(255,192,72,.12); color: var(--yellow); border-color: rgba(255,192,72,.25); }
+  .signal-badge.upgrade { background: rgba(0,206,201,.12); color: var(--green); border-color: rgba(0,206,201,.25); }
+  .signal-badge.technical { background: rgba(225,112,85,.12); color: #e17055; border-color: rgba(225,112,85,.25); }
+
   @media (max-width: 600px) {
     .hero h1 { font-size: 2rem; }
     .cta-btn { padding: 16px 32px; font-size: 1.1rem; }
@@ -559,10 +739,107 @@
       <label class="market-chip"><input type="checkbox" value="nordics"> Nordics</label>
       <label class="market-chip"><input type="checkbox" value="canada"> Canada</label>
     </div>
+
     <div class="price-filter">
       <label for="maxPrice">Max price per share: $</label>
       <input type="number" id="maxPrice" value="50" min="1" step="1">
     </div>
+
+    <!-- Strategy selector for Suggest mode -->
+    <div class="strategy-row" id="strategyRow">
+      <label for="strategySelect">Strategy:</label>
+      <select id="strategySelect">
+        <option value="">All (balanced)</option>
+        <option value="value">Value — low P/E, low P/B</option>
+        <option value="growth">Growth — high revenue growth</option>
+        <option value="income">Income — high dividends</option>
+        <option value="momentum">Momentum — strong uptrends</option>
+        <option value="quality">Quality — high margins, large caps</option>
+        <option value="bargain">Bargain — deeply cheap</option>
+      </select>
+    </div>
+
+    <!-- Advanced filters toggle -->
+    <div class="adv-filter-toggle">
+      <button onclick="toggleAdvFilters()">Advanced Filters</button>
+    </div>
+    <div class="adv-filters" id="advFilters">
+      <div class="filter-group">
+        <label>Sector</label>
+        <select id="filterSector">
+          <option value="">Any</option>
+          <option value="Technology">Technology</option>
+          <option value="Healthcare">Healthcare</option>
+          <option value="Financial Services">Financial Services</option>
+          <option value="Energy">Energy</option>
+          <option value="Consumer Cyclical">Consumer Cyclical</option>
+          <option value="Consumer Defensive">Consumer Defensive</option>
+          <option value="Industrials">Industrials</option>
+          <option value="Real Estate">Real Estate</option>
+          <option value="Utilities">Utilities</option>
+          <option value="Basic Materials">Basic Materials</option>
+          <option value="Communication Services">Communication Services</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Min Market Cap</label>
+        <select id="filterMinCap">
+          <option value="">Any</option>
+          <option value="300000000">Micro ($300M+)</option>
+          <option value="2000000000">Small ($2B+)</option>
+          <option value="10000000000">Mid ($10B+)</option>
+          <option value="50000000000">Large ($50B+)</option>
+          <option value="200000000000">Mega ($200B+)</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Min Dividend Yield</label>
+        <select id="filterMinYield">
+          <option value="">Any</option>
+          <option value="1">1%+</option>
+          <option value="2">2%+</option>
+          <option value="3">3%+</option>
+          <option value="4">4%+</option>
+          <option value="5">5%+</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Max P/E</label>
+        <select id="filterMaxPE">
+          <option value="">Any</option>
+          <option value="10">Under 10</option>
+          <option value="15">Under 15</option>
+          <option value="20">Under 20</option>
+          <option value="30">Under 30</option>
+          <option value="50">Under 50</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Scout mode signal selector -->
+    <div class="scout-signals" id="scoutSignals" style="display:none">
+      <div class="signal-title">Event Signals to Scan:</div>
+      <div class="signal-chips">
+        <label class="market-chip selected"><input type="checkbox" value="earnings_beat" checked> Earnings Beats</label>
+        <label class="market-chip selected"><input type="checkbox" value="insider_buying" checked> Insider Buying</label>
+        <label class="market-chip selected"><input type="checkbox" value="analyst_upgrade" checked> Analyst Upgrades</label>
+        <label class="market-chip selected"><input type="checkbox" value="new_52w_low" checked> 52-Week Lows</label>
+        <label class="market-chip selected"><input type="checkbox" value="high_upside_gap" checked> High Upside Gap</label>
+        <label class="market-chip selected"><input type="checkbox" value="dividend_increase" checked> Dividend Signals</label>
+      </div>
+    </div>
+
+    <!-- Technical scan setup selector -->
+    <div class="tech-setups" id="techSetups" style="display:none">
+      <div class="signal-title">Technical Setups to Find:</div>
+      <div class="signal-chips">
+        <label class="market-chip selected"><input type="checkbox" value="golden_cross" checked> Golden Cross</label>
+        <label class="market-chip selected"><input type="checkbox" value="rsi_oversold_bounce" checked> RSI Oversold Bounce</label>
+        <label class="market-chip selected"><input type="checkbox" value="breakout" checked> Breakout</label>
+        <label class="market-chip selected"><input type="checkbox" value="pullback_to_support" checked> Pullback to Support</label>
+      </div>
+    </div>
+
     <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
       <button class="cta-btn" id="suggestBtn" onclick="runSuggest(false)">
         <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
@@ -571,6 +848,18 @@
       <button class="cta-btn gamble-btn" id="gambleBtn" onclick="runGamble(false)">
         <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm2-8c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2z"/></svg>
         Gamble
+      </button>
+      <button class="cta-btn scout-btn" id="scoutBtn" onclick="runScout(false)">
+        <svg viewBox="0 0 24 24"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0013 3.06V1h-2v2.06A8.994 8.994 0 003.06 11H1v2h2.06A8.994 8.994 0 0011 20.94V23h2v-2.06A8.994 8.994 0 0020.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
+        Scout
+      </button>
+      <button class="cta-btn tech-btn" id="techBtn" onclick="runTechScan()">
+        <svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
+        Technicals
+      </button>
+      <button class="cta-btn reddit-btn" id="redditBtn" onclick="runReddit()">
+        <svg viewBox="0 0 24 24"><path d="M12 0C5.373 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.6.11.793-.26.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.73.083-.73 1.205.085 1.84 1.237 1.84 1.237 1.07 1.834 2.806 1.304 3.49.997.108-.775.42-1.305.763-1.605-2.665-.305-5.467-1.334-5.467-5.931 0-1.31.469-2.381 1.237-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.51 11.51 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.236 1.911 1.236 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+        Reddit
       </button>
     </div>
   </div>
@@ -626,11 +915,43 @@ document.querySelectorAll('.market-chip').forEach(chip => {
 });
 
 function getSelectedMarkets() {
-  return Array.from(document.querySelectorAll('.market-chip input:checked')).map(cb => cb.value);
+  return Array.from(document.querySelectorAll('#marketPicker .market-chip input:checked')).map(cb => cb.value);
+}
+
+function getSelectedSignals() {
+  return Array.from(document.querySelectorAll('#scoutSignals .market-chip input:checked')).map(cb => cb.value);
+}
+
+function getSelectedSetups() {
+  return Array.from(document.querySelectorAll('#techSetups .market-chip input:checked')).map(cb => cb.value);
+}
+
+function getAdvFilters() {
+  const filters = {};
+  const sector = document.getElementById('filterSector').value;
+  if (sector) filters.sectors = [sector];
+  const minCap = document.getElementById('filterMinCap').value;
+  if (minCap) filters.min_market_cap = parseFloat(minCap);
+  const minYield = document.getElementById('filterMinYield').value;
+  if (minYield) filters.min_dividend_yield = parseFloat(minYield);
+  const maxPE = document.getElementById('filterMaxPE').value;
+  if (maxPE) filters.max_pe = parseFloat(maxPE);
+  return Object.keys(filters).length > 0 ? filters : null;
+}
+
+function toggleAdvFilters() {
+  document.getElementById('advFilters').classList.toggle('open');
 }
 
 function toggleLookup() {
   document.getElementById('lookupArea').classList.toggle('open');
+}
+
+// Show/hide scout and tech panels based on which mode was last activated
+function showModePanel(mode) {
+  document.getElementById('scoutSignals').style.display = mode === 'scout' ? 'block' : 'none';
+  document.getElementById('techSetups').style.display = mode === 'tech' ? 'block' : 'none';
+  document.getElementById('strategyRow').style.display = (mode === 'suggest' || mode === '') ? 'flex' : 'none';
 }
 
 function formatAge(minutes) {
@@ -655,6 +976,9 @@ function forceRefresh() {
   if (!lastMode) return;
   if (lastMode === 'suggest') runSuggest(true);
   else if (lastMode === 'gamble') runGamble(true);
+  else if (lastMode === 'scout') runScout(true);
+  else if (lastMode === 'tech') runTechScan();
+  else if (lastMode === 'reddit') runReddit();
 }
 
 function showProgress(pct) {
@@ -694,10 +1018,16 @@ async function pollJob(jobId) {
   }
 }
 
+function disableAllButtons(disabled) {
+  ['suggestBtn','gambleBtn','scoutBtn','techBtn','redditBtn'].forEach(id => {
+    document.getElementById(id).disabled = disabled;
+  });
+}
+
 async function runSuggest(force) {
   lastMode = 'suggest';
-  suggestBtn.disabled = true;
-  document.getElementById('gambleBtn').disabled = true;
+  showModePanel('suggest');
+  disableAllButtons(true);
   resultsEl.innerHTML = '';
   statusEl.className = 'status';
   hideCacheInfo();
@@ -706,21 +1036,23 @@ async function runSuggest(force) {
   try {
     const maxPrice = parseFloat(document.getElementById('maxPrice').value) || null;
     const markets = getSelectedMarkets();
+    const strategy = document.getElementById('strategySelect').value || null;
+    const filters = getAdvFilters();
     if (markets.length === 0) {
       statusEl.className = 'status error';
       statusEl.textContent = 'Select at least one market.';
       hideProgress();
-      suggestBtn.disabled = false;
-      document.getElementById('gambleBtn').disabled = false;
+      disableAllButtons(false);
       return;
     }
     const mktLabel = markets.map(m => m.toUpperCase()).join(', ');
-    statusEl.innerHTML = '<span class="spinner"></span>Starting analysis for ' + mktLabel + '...';
+    const stratLabel = strategy ? ' [' + strategy.charAt(0).toUpperCase() + strategy.slice(1) + ']' : '';
+    statusEl.innerHTML = '<span class="spinner"></span>Starting analysis for ' + mktLabel + stratLabel + '...';
 
     const startResp = await fetch('/suggest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ top: 30, max_price: maxPrice, markets, force: !!force }),
+      body: JSON.stringify({ top: 30, max_price: maxPrice, markets, strategy, filters, force: !!force }),
     });
     const startData = await startResp.json();
 
@@ -728,7 +1060,7 @@ async function runSuggest(force) {
       hideProgress();
       const priceNote = maxPrice ? ` under $${maxPrice}` : '';
       const mktNote = markets.map(m => m.toUpperCase()).join(', ');
-      statusEl.innerHTML = `Top <strong>${startData.results.length}</strong> suggestions${priceNote} from ${mktNote} — click any card for details`;
+      statusEl.innerHTML = `Top <strong>${startData.results.length}</strong> suggestions${priceNote} from ${mktNote}${stratLabel} — click any card for details`;
       renderResults(startData.results);
       showCacheInfo(startData.cache_age_min);
     } else {
@@ -739,7 +1071,7 @@ async function runSuggest(force) {
       hideProgress();
       const priceNote = maxPrice ? ` under $${maxPrice}` : '';
       const mktNote = markets.map(m => m.toUpperCase()).join(', ');
-      statusEl.innerHTML = `Top <strong>${data.results.length}</strong> suggestions${priceNote} from ${mktNote} — click any card for details`;
+      statusEl.innerHTML = `Top <strong>${data.results.length}</strong> suggestions${priceNote} from ${mktNote}${stratLabel} — click any card for details`;
       renderResults(data.results);
     }
   } catch (err) {
@@ -747,15 +1079,13 @@ async function runSuggest(force) {
     statusEl.className = 'status error';
     statusEl.textContent = err.message || 'Network error — is the server running?';
   }
-  suggestBtn.disabled = false;
-  document.getElementById('gambleBtn').disabled = false;
+  disableAllButtons(false);
 }
 
 async function runGamble(force) {
   lastMode = 'gamble';
-  const gambleBtn = document.getElementById('gambleBtn');
-  gambleBtn.disabled = true;
-  suggestBtn.disabled = true;
+  showModePanel('gamble');
+  disableAllButtons(true);
   resultsEl.innerHTML = '';
   statusEl.className = 'status';
   hideCacheInfo();
@@ -764,12 +1094,12 @@ async function runGamble(force) {
   try {
     const maxPrice = parseFloat(document.getElementById('maxPrice').value) || null;
     const markets = getSelectedMarkets();
+    const filters = getAdvFilters();
     if (markets.length === 0) {
       statusEl.className = 'status error';
       statusEl.textContent = 'Select at least one market.';
       hideProgress();
-      gambleBtn.disabled = false;
-      suggestBtn.disabled = false;
+      disableAllButtons(false);
       return;
     }
     statusEl.innerHTML = '<span class="spinner"></span>Starting gamble analysis...';
@@ -777,7 +1107,7 @@ async function runGamble(force) {
     const startResp = await fetch('/gamble', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ top: 30, max_price: maxPrice, markets, force: !!force }),
+      body: JSON.stringify({ top: 30, max_price: maxPrice, markets, filters, force: !!force }),
     });
     const startData = await startResp.json();
 
@@ -802,8 +1132,182 @@ async function runGamble(force) {
     statusEl.className = 'status error';
     statusEl.textContent = err.message || 'Network error — is the server running?';
   }
-  gambleBtn.disabled = false;
-  suggestBtn.disabled = false;
+  disableAllButtons(false);
+}
+
+async function runScout(force) {
+  lastMode = 'scout';
+  showModePanel('scout');
+  disableAllButtons(true);
+  resultsEl.innerHTML = '';
+  statusEl.className = 'status';
+  hideCacheInfo();
+  showProgress(0);
+
+  try {
+    const maxPrice = parseFloat(document.getElementById('maxPrice').value) || null;
+    const markets = getSelectedMarkets();
+    const signals = getSelectedSignals();
+    const filters = getAdvFilters();
+    if (markets.length === 0) {
+      statusEl.className = 'status error';
+      statusEl.textContent = 'Select at least one market.';
+      hideProgress();
+      disableAllButtons(false);
+      return;
+    }
+    if (signals.length === 0) {
+      statusEl.className = 'status error';
+      statusEl.textContent = 'Select at least one signal to scan for.';
+      hideProgress();
+      disableAllButtons(false);
+      return;
+    }
+    statusEl.innerHTML = '<span class="spinner"></span>Scouting for event-driven signals...';
+
+    const startResp = await fetch('/scout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ top: 30, max_price: maxPrice, markets, signals, filters, force: !!force }),
+    });
+    const startData = await startResp.json();
+
+    if (startData.cached) {
+      hideProgress();
+      statusEl.innerHTML = `<strong>${startData.results.length}</strong> stocks with active signals — sorted by signal strength`;
+      renderResults(startData.results);
+      showCacheInfo(startData.cache_age_min);
+    } else {
+      if (!startResp.ok || !startData.job_id) {
+        throw new Error(startData.error || 'Failed to start scout');
+      }
+      const data = await pollJob(startData.job_id);
+      hideProgress();
+      statusEl.innerHTML = `<strong>${data.results.length}</strong> stocks with active signals — sorted by signal strength`;
+      renderResults(data.results);
+    }
+  } catch (err) {
+    hideProgress();
+    statusEl.className = 'status error';
+    statusEl.textContent = err.message || 'Network error — is the server running?';
+  }
+  disableAllButtons(false);
+}
+
+async function runTechScan() {
+  lastMode = 'tech';
+  showModePanel('tech');
+  disableAllButtons(true);
+  resultsEl.innerHTML = '';
+  statusEl.className = 'status';
+  hideCacheInfo();
+  showProgress(0);
+
+  try {
+    const maxPrice = parseFloat(document.getElementById('maxPrice').value) || null;
+    const markets = getSelectedMarkets();
+    const setups = getSelectedSetups();
+    const filters = getAdvFilters();
+    if (markets.length === 0) {
+      statusEl.className = 'status error';
+      statusEl.textContent = 'Select at least one market.';
+      hideProgress();
+      disableAllButtons(false);
+      return;
+    }
+    if (setups.length === 0) {
+      statusEl.className = 'status error';
+      statusEl.textContent = 'Select at least one technical setup.';
+      hideProgress();
+      disableAllButtons(false);
+      return;
+    }
+    statusEl.innerHTML = '<span class="spinner"></span>Scanning charts for technical setups...';
+
+    const startResp = await fetch('/technical-scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ top: 30, max_price: maxPrice, markets, setups, filters }),
+    });
+    const startData = await startResp.json();
+
+    if (!startResp.ok || !startData.job_id) {
+      throw new Error(startData.error || 'Failed to start technical scan');
+    }
+    const data = await pollJob(startData.job_id);
+    hideProgress();
+    statusEl.innerHTML = `<strong>${data.results.length}</strong> stocks with technical setups — sorted by score`;
+    renderResults(data.results);
+  } catch (err) {
+    hideProgress();
+    statusEl.className = 'status error';
+    statusEl.textContent = err.message || 'Network error — is the server running?';
+  }
+  disableAllButtons(false);
+}
+
+async function runFindSimilar(ticker) {
+  disableAllButtons(true);
+  resultsEl.innerHTML = '';
+  statusEl.className = 'status';
+  hideCacheInfo();
+  showProgress(0);
+  statusEl.innerHTML = '<span class="spinner"></span>Finding stocks similar to ' + ticker + '...';
+
+  try {
+    const markets = getSelectedMarkets();
+    const startResp = await fetch('/find-similar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker, top: 10, markets }),
+    });
+    const startData = await startResp.json();
+
+    if (!startResp.ok || !startData.job_id) {
+      throw new Error(startData.error || 'Failed to start similarity search');
+    }
+    const data = await pollJob(startData.job_id);
+    hideProgress();
+    statusEl.innerHTML = `<strong>${data.results.length}</strong> stocks similar to <strong>${ticker}</strong> — sorted by score`;
+    renderResults(data.results);
+  } catch (err) {
+    hideProgress();
+    statusEl.className = 'status error';
+    statusEl.textContent = err.message || 'Network error — is the server running?';
+  }
+  disableAllButtons(false);
+}
+
+async function runReddit() {
+  lastMode = 'reddit';
+  disableAllButtons(true);
+  resultsEl.innerHTML = '';
+  statusEl.className = 'status';
+  hideCacheInfo();
+  showProgress(0);
+  statusEl.innerHTML = '<span class="spinner"></span>Scraping Reddit for trending stocks...';
+
+  try {
+    const startResp = await fetch('/reddit-discover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ top: 15, subreddits: ['wallstreetbets'] }),
+    });
+    const startData = await startResp.json();
+
+    if (!startResp.ok || !startData.job_id) {
+      throw new Error(startData.error || 'Failed to start Reddit discovery');
+    }
+    const data = await pollJob(startData.job_id);
+    hideProgress();
+    statusEl.innerHTML = `<strong>${data.results.length}</strong> Reddit-trending stocks — sorted by mention count`;
+    renderResults(data.results);
+  } catch (err) {
+    hideProgress();
+    statusEl.className = 'status error';
+    statusEl.textContent = err.message || 'Network error — is the server running?';
+  }
+  disableAllButtons(false);
 }
 
 async function runLookup(e) {
@@ -936,6 +1440,26 @@ function buildPrediction(pred) {
   </div>`;
 }
 
+function buildRedditBadge(redditSignals) {
+  if (!redditSignals || !redditSignals.mentions) return '';
+  const subs = (redditSignals.subreddits || ['wallstreetbets']).map(s => 'r/' + s).join(', ');
+  return `<span class="reddit-badge">Mentioned ${redditSignals.mentions}x on ${subs}</span>`;
+}
+
+function buildSignalBadges(signals) {
+  if (!signals || !signals.length) return '';
+  let badges = '';
+  for (const sig of signals) {
+    let cls = '';
+    if (sig.signal.includes('earnings')) cls = 'earnings';
+    else if (sig.signal.includes('insider')) cls = 'insider';
+    else if (sig.signal.includes('analyst') || sig.signal.includes('upgrade')) cls = 'upgrade';
+    else if (['golden_cross','rsi_oversold_bounce','breakout','pullback_to_support'].includes(sig.signal)) cls = 'technical';
+    badges += `<span class="signal-badge ${cls}">${sig.description}</span>`;
+  }
+  return `<div class="signal-badges">${badges}</div>`;
+}
+
 function renderResults(results) {
   lastResults = results;
   exportBar.classList.toggle('show', results.length > 0);
@@ -973,6 +1497,8 @@ function renderResults(results) {
         </div>
         <div class="expand-hint">click to expand details</div>
       </div>
+      ${buildSignalBadges(r.scout_signals)}
+      ${buildRedditBadge(r.reddit_signals)}
       ${buildPrediction(r.prediction)}
       <div class="breakdown-wrap" id="${id}">
         <div class="breakdown">
@@ -983,11 +1509,15 @@ function renderResults(results) {
           ${r.sentiment ? buildSection('Sentiment & Signals', r.sentiment) : ''}
           ${r.fair_value ? buildSection('Fair Value', r.fair_value) : ''}
           ${r.risk_quality ? buildSection('Risk & Quality', r.risk_quality) : ''}
+          ${r.growth_efficiency ? buildSection('Growth & Efficiency', r.growth_efficiency) : ''}
         </div>
       </div>
       <div class="card-actions">
         <button class="card-action-btn" onclick="event.stopPropagation();addToWatchlist('${r.ticker}',this)">+ Watchlist</button>
-      </div>`;
+        <button class="card-action-btn" onclick="event.stopPropagation();runFindSimilar('${r.ticker}')">Find Similar</button>
+        <button class="card-action-btn" onclick="event.stopPropagation();loadNews('${r.ticker}',this)">News</button>
+      </div>
+      <div class="news-section" id="news-${r.ticker}" style="display:none"></div>`;
     resultsEl.appendChild(card);
   });
 }
@@ -1001,6 +1531,38 @@ async function addToWatchlist(ticker, btn) {
   const data = await resp.json();
   btn.textContent = data.status === 'added' ? 'Added' : 'Already saved';
   btn.classList.add('added');
+}
+
+async function loadNews(ticker, btn) {
+  const el = document.getElementById('news-' + ticker);
+  if (el.style.display !== 'none') {
+    el.style.display = 'none';
+    btn.textContent = 'News';
+    return;
+  }
+  btn.textContent = 'Loading...';
+  try {
+    const resp = await fetch('/api/news/' + ticker);
+    const data = await resp.json();
+    if (data.articles && data.articles.length > 0) {
+      el.innerHTML = data.articles.map(a => {
+        const ago = Math.round((Date.now()/1000 - a.datetime) / 3600);
+        const timeStr = ago < 24 ? ago + 'h ago' : Math.round(ago/24) + 'd ago';
+        return `<div class="news-item">
+          <a href="${a.url}" target="_blank" class="news-headline">${a.headline}</a>
+          <div class="news-meta">${a.source} · ${timeStr}</div>
+        </div>`;
+      }).join('');
+    } else {
+      el.innerHTML = '<span class="news-empty">No recent news found.</span>';
+    }
+    el.style.display = 'block';
+    btn.textContent = 'Hide News';
+  } catch (e) {
+    el.innerHTML = '<span class="news-empty">Failed to load news.</span>';
+    el.style.display = 'block';
+    btn.textContent = 'News';
+  }
 }
 
 function exportPDF() {

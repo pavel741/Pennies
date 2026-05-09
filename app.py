@@ -10,7 +10,8 @@ load_dotenv()
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from analyzer import analyze_multiple, suggest_stocks, gamble_stocks, MARKETS
+from analyzer import (analyze_multiple, suggest_stocks, gamble_stocks, scout_stocks,
+                      technical_scan, find_similar, reddit_stocks, MARKETS, STRATEGIES, STRATEGY_LIST)
 from yahoo_api import get_quote_summary, extract_info, get_chart
 import finnhub_api
 import background_jobs
@@ -140,7 +141,36 @@ def api_config():
     })
 
 
+@app.route("/api/news/<ticker>")
+@login_required
+def api_news(ticker):
+    ticker = ticker.strip().upper()
+    if not finnhub_api.is_configured():
+        return jsonify({"error": "News unavailable (Finnhub not configured)"}), 503
+    news = finnhub_api.get_company_news(ticker, days_back=7)
+    if news is None:
+        return jsonify({"articles": []})
+    articles = []
+    for item in news[:10]:
+        articles.append({
+            "headline": item.get("headline", ""),
+            "summary": item.get("summary", ""),
+            "source": item.get("source", ""),
+            "url": item.get("url", ""),
+            "datetime": item.get("datetime", 0),
+        })
+    return jsonify({"articles": articles})
+
+
 # --------------- Stock Analysis API ---------------
+
+@app.route("/api/strategies")
+@login_required
+def api_strategies():
+    return jsonify({
+        "strategies": {k: {"label": v["label"], "description": v["description"]} for k, v in STRATEGIES.items()},
+    })
+
 
 @app.route("/suggest", methods=["POST"])
 @login_required
@@ -151,6 +181,8 @@ def suggest():
     if max_price is not None:
         max_price = float(max_price)
     markets = data.get("markets") or ["us"]
+    strategy = data.get("strategy") or None
+    filters = data.get("filters") or None
     force = data.get("force", False)
 
     if not force:
@@ -167,6 +199,7 @@ def suggest():
 
     job_id = background_jobs.start_job("suggest", current_user.id, {
         "top": top_n, "max_price": max_price, "markets": sorted(markets),
+        "strategy": strategy, "filters": filters,
     })
     return jsonify({"job_id": job_id})
 
@@ -180,6 +213,7 @@ def gamble():
     if max_price is not None:
         max_price = float(max_price)
     markets = data.get("markets") or ["us"]
+    filters = data.get("filters") or None
     force = data.get("force", False)
 
     if not force:
@@ -196,6 +230,88 @@ def gamble():
 
     job_id = background_jobs.start_job("gamble", current_user.id, {
         "top": top_n, "max_price": max_price, "markets": sorted(markets),
+        "filters": filters,
+    })
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/scout", methods=["POST"])
+@login_required
+def scout():
+    data = request.get_json(silent=True) or {}
+    top_n = min(int(data.get("top", 30)), 30)
+    max_price = data.get("max_price")
+    if max_price is not None:
+        max_price = float(max_price)
+    markets = data.get("markets") or ["us"]
+    signals = data.get("signals") or None
+    filters = data.get("filters") or None
+    force = data.get("force", False)
+
+    if not force:
+        cached = background_jobs.get_cached_results("scout", markets, max_price)
+        if cached:
+            created = cached["created_at"].replace(tzinfo=timezone.utc) if cached["created_at"].tzinfo is None else cached["created_at"]
+            age_min = int((datetime.now(timezone.utc) - created).total_seconds() / 60)
+            return jsonify({
+                "cached": True,
+                "results": cached.get("results") or [],
+                "markets": MARKETS,
+                "cache_age_min": age_min,
+            })
+
+    job_id = background_jobs.start_job("scout", current_user.id, {
+        "top": top_n, "max_price": max_price, "markets": sorted(markets),
+        "signals": signals, "filters": filters,
+    })
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/technical-scan", methods=["POST"])
+@login_required
+def tech_scan():
+    data = request.get_json(silent=True) or {}
+    top_n = min(int(data.get("top", 30)), 30)
+    max_price = data.get("max_price")
+    if max_price is not None:
+        max_price = float(max_price)
+    markets = data.get("markets") or ["us"]
+    setups = data.get("setups") or None
+    filters = data.get("filters") or None
+
+    job_id = background_jobs.start_job("technical_scan", current_user.id, {
+        "top": top_n, "max_price": max_price, "markets": sorted(markets),
+        "setups": setups, "filters": filters,
+    })
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/find-similar", methods=["POST"])
+@login_required
+def find_similar_route():
+    data = request.get_json(silent=True) or {}
+    ticker = (data.get("ticker") or "").strip().upper()
+    if not ticker:
+        return jsonify({"error": "Ticker required"}), 400
+    markets = data.get("markets") or ["us"]
+    top_n = min(int(data.get("top", 10)), 20)
+
+    job_id = background_jobs.start_job("find_similar", current_user.id, {
+        "ticker": ticker, "top": top_n, "markets": sorted(markets),
+    })
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/reddit-discover", methods=["POST"])
+@login_required
+def reddit_discover():
+    data = request.get_json(silent=True) or {}
+    top_n = min(int(data.get("top", 15)), 30)
+    subreddits = data.get("subreddits") or ["wallstreetbets"]
+    markets = data.get("markets") or ["us"]
+
+    job_id = background_jobs.start_job("reddit", current_user.id, {
+        "top": top_n, "subreddits": subreddits, "markets": sorted(markets),
     })
     return jsonify({"job_id": job_id})
 

@@ -265,8 +265,19 @@ def _screen_batch(
     exchanges: list[str],
     max_price: float = None,
     size: int = 250,
+    filters: dict = None,
 ) -> list[dict]:
-    """Run a single screener request for the given exchanges."""
+    """Run a single screener request for the given exchanges.
+
+    filters dict supports:
+        sectors: list[str] - e.g. ["Technology", "Healthcare"]
+        min_market_cap: float - minimum market cap
+        max_market_cap: float - maximum market cap
+        min_dividend_yield: float - minimum yield (as percent, e.g. 3.0)
+        max_pe: float - maximum trailing P/E
+        min_pe: float - minimum trailing P/E
+        min_revenue_growth: float - minimum revenue growth (as percent)
+    """
     s, crumb = _get_session()
 
     exchange_filters = [
@@ -280,6 +291,39 @@ def _screen_batch(
     operands = [exchange_operand]
     if max_price is not None:
         operands.append({"operator": "LT", "operands": ["intradayprice", max_price]})
+
+    if filters:
+        sectors = filters.get("sectors")
+        if sectors and isinstance(sectors, list):
+            sector_ops = [{"operator": "EQ", "operands": ["sector", s]} for s in sectors]
+            if len(sector_ops) == 1:
+                operands.append(sector_ops[0])
+            else:
+                operands.append({"operator": "OR", "operands": sector_ops})
+
+        min_mcap = filters.get("min_market_cap")
+        if min_mcap is not None:
+            operands.append({"operator": "GT", "operands": ["intradaymarketcap", float(min_mcap)]})
+
+        max_mcap = filters.get("max_market_cap")
+        if max_mcap is not None:
+            operands.append({"operator": "LT", "operands": ["intradaymarketcap", float(max_mcap)]})
+
+        min_yield = filters.get("min_dividend_yield")
+        if min_yield is not None:
+            operands.append({"operator": "GT", "operands": ["dividendyield", float(min_yield)]})
+
+        max_pe = filters.get("max_pe")
+        if max_pe is not None:
+            operands.append({"operator": "LT", "operands": ["trailingpe", float(max_pe)]})
+
+        min_pe = filters.get("min_pe")
+        if min_pe is not None:
+            operands.append({"operator": "GT", "operands": ["trailingpe", float(min_pe)]})
+
+        min_rev_growth = filters.get("min_revenue_growth")
+        if min_rev_growth is not None:
+            operands.append({"operator": "GT", "operands": ["revenue_growth", float(min_rev_growth)]})
 
     body = {
         "offset": 0,
@@ -337,18 +381,21 @@ def screen_stocks(
     exchanges: list[str],
     max_price: float = None,
     size: int = 250,
+    filters: dict = None,
 ) -> list[dict]:
     """
     Query the Yahoo Finance screener API to get equities on the given exchanges.
     Batches requests to avoid Yahoo 500 errors when too many exchanges are passed.
     """
-    cache_key = f"screen:{','.join(sorted(exchanges))}:{max_price}:{size}"
+    import hashlib as _hl
+    filter_key = _hl.md5(str(sorted((filters or {}).items())).encode()).hexdigest()[:8]
+    cache_key = f"screen:{','.join(sorted(exchanges))}:{max_price}:{size}:{filter_key}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
     if len(exchanges) <= _SCREENER_BATCH:
-        results = _screen_batch(exchanges, max_price, size)
+        results = _screen_batch(exchanges, max_price, size, filters=filters)
         logger.info(f"Screener returned {len(results)} stocks for exchanges {exchanges}")
         if results:
             _cache_set(cache_key, results, ttl_minutes=30)
@@ -362,7 +409,7 @@ def screen_stocks(
         batch = exchanges[i:i + _SCREENER_BATCH]
         per_batch = max(size // ((len(exchanges) + _SCREENER_BATCH - 1) // _SCREENER_BATCH), 100)
         try:
-            quotes = _screen_batch(batch, max_price, per_batch)
+            quotes = _screen_batch(batch, max_price, per_batch, filters=filters)
             for q in quotes:
                 sym = q.get("symbol")
                 if sym and sym not in seen:
@@ -428,6 +475,7 @@ def extract_info(summary: dict) -> dict:
         "operatingCashflow": _raw_val(fin, "operatingCashflow"),
         "enterpriseValue": _raw_val(stats, "enterpriseValue"),
         "enterpriseToEbitda": _raw_val(stats, "enterpriseToEbitda"),
+        "earningsGrowth": _raw_val(fin, "earningsGrowth"),
         "beta": _raw_val(stats, "beta"),
     }
 

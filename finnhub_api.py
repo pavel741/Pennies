@@ -81,3 +81,15 @@ def get_insider_transactions(symbol: str) -> Optional[dict]:
     Response: {data: [{name, share, change, transactionDate, ...}], symbol}
     """
     return _get("/stock/insider-transactions", {"symbol": symbol})
+
+
+def get_company_news(symbol: str, days_back: int = 7) -> Optional[list[dict]]:
+    """
+    Returns recent company news articles.
+    Each entry: {category, datetime, headline, id, image, related, source, summary, url}
+    """
+    from datetime import datetime, timedelta
+    today = datetime.now()
+    from_date = (today - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    to_date = today.strftime("%Y-%m-%d")
+    return _get("/company-news", {"symbol": symbol, "from": from_date, "to": to_date})

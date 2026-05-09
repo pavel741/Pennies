@@ -96,6 +96,79 @@ MARKETS = {
 
 MARKET_LIST = list(MARKETS.keys())
 
+# ---------------------------------------------------------------------------
+# Strategy presets — screener filters + quick-score weight overrides
+# ---------------------------------------------------------------------------
+STRATEGIES = {
+    "value": {
+        "label": "Value",
+        "description": "Undervalued stocks with low P/E, low P/B, and dividends",
+        "screener_filters": {
+            "max_pe": 15,
+        },
+        "score_weights": {
+            "pe": 2.0, "fpe": 1.5, "pb": 2.0, "dividend": 1.5,
+            "momentum": 0.5, "size": 0.5,
+        },
+    },
+    "growth": {
+        "label": "Growth",
+        "description": "Fast-growing companies with strong revenue and earnings momentum",
+        "screener_filters": {
+            "min_revenue_growth": 10,
+        },
+        "score_weights": {
+            "pe": 0.3, "fpe": 1.5, "pb": 0.3, "dividend": 0.2,
+            "momentum": 2.0, "size": 1.0,
+        },
+    },
+    "income": {
+        "label": "Income",
+        "description": "High-dividend stocks with sustainable payouts and large market caps",
+        "screener_filters": {
+            "min_dividend_yield": 3.0,
+            "min_market_cap": 2_000_000_000,
+        },
+        "score_weights": {
+            "pe": 0.8, "fpe": 0.8, "pb": 0.5, "dividend": 3.0,
+            "momentum": 0.5, "size": 1.5,
+        },
+    },
+    "momentum": {
+        "label": "Momentum",
+        "description": "Stocks in strong uptrends with positive price action",
+        "screener_filters": {},
+        "score_weights": {
+            "pe": 0.5, "fpe": 0.8, "pb": 0.3, "dividend": 0.2,
+            "momentum": 3.0, "size": 1.0,
+        },
+    },
+    "quality": {
+        "label": "Quality",
+        "description": "Profitable companies with strong margins and financial health",
+        "screener_filters": {
+            "min_market_cap": 5_000_000_000,
+        },
+        "score_weights": {
+            "pe": 1.0, "fpe": 1.2, "pb": 0.8, "dividend": 1.0,
+            "momentum": 1.0, "size": 1.5,
+        },
+    },
+    "bargain": {
+        "label": "Bargain",
+        "description": "Deeply cheap stocks with high upside potential",
+        "screener_filters": {
+            "max_pe": 10,
+        },
+        "score_weights": {
+            "pe": 2.5, "fpe": 2.0, "pb": 2.5, "dividend": 1.0,
+            "momentum": 0.3, "size": 0.3,
+        },
+    },
+}
+
+STRATEGY_LIST = list(STRATEGIES.keys())
+
 _SCREENER_SIZE = 750
 _QUICK_TOP_N = 30
 
@@ -126,6 +199,7 @@ class StockReport:
     sentiment: Optional[ScoreBreakdown] = None
     fair_value: Optional[ScoreBreakdown] = None
     risk_quality: Optional[ScoreBreakdown] = None
+    growth_efficiency: Optional[ScoreBreakdown] = None
     prediction: Optional[dict] = None
     error: Optional[str] = None
 
@@ -138,6 +212,8 @@ class StockReport:
             base.append(self.fair_value)
         if self.risk_quality and self.risk_quality.max_score > 0:
             base.append(self.risk_quality)
+        if self.growth_efficiency and self.growth_efficiency.max_score > 0:
+            base.append(self.growth_efficiency)
         return base
 
     @property
@@ -219,6 +295,12 @@ class StockReport:
                 "pct": round(self.risk_quality.pct, 1),
                 "details": self.risk_quality.details,
             } if self.risk_quality and self.risk_quality.max_score > 0 else None,
+            "growth_efficiency": {
+                "score": round(self.growth_efficiency.score, 1),
+                "max": round(self.growth_efficiency.max_score, 1),
+                "pct": round(self.growth_efficiency.pct, 1),
+                "details": self.growth_efficiency.details,
+            } if self.growth_efficiency and self.growth_efficiency.max_score > 0 else None,
             "prediction": self.prediction,
             "error": self.error,
         }
@@ -236,61 +318,71 @@ def _safe(val):
 
 # ---------------------------------------------------------------------------
 # Quick scoring from screener data (no per-stock API calls)
-# Max 100 pts: Valuation 35, Dividends 20, Momentum 25, Size 20
+# Base max ~100 pts. Weights dict multiplies each component.
+# Default weights are all 1.0 (balanced). Strategy presets override them.
 # ---------------------------------------------------------------------------
-def _quick_score(quote: dict) -> float:
+_DEFAULT_WEIGHTS = {"pe": 1.0, "fpe": 1.0, "pb": 1.0, "dividend": 1.0, "momentum": 1.0, "size": 1.0}
+
+
+def _quick_score(quote: dict, weights: dict = None) -> float:
+    w = _DEFAULT_WEIGHTS if not weights else {**_DEFAULT_WEIGHTS, **weights}
     score = 0.0
 
+    # --- Valuation: P/E ---
     pe = _safe(quote.get("trailingPE"))
     if pe is not None and pe > 0:
         if pe < 15:
-            score += 15
+            score += 15 * w["pe"]
         elif pe < 20:
-            score += 12
+            score += 12 * w["pe"]
         elif pe < 30:
-            score += 8
+            score += 8 * w["pe"]
         elif pe < 50:
-            score += 4
+            score += 4 * w["pe"]
         else:
-            score += 1
+            score += 1 * w["pe"]
 
+    # --- Valuation: Forward P/E ---
     fpe = _safe(quote.get("forwardPE"))
     if fpe is not None and fpe > 0:
         if fpe < 12:
-            score += 10
+            score += 10 * w["fpe"]
         elif fpe < 18:
-            score += 8
+            score += 8 * w["fpe"]
         elif fpe < 25:
-            score += 5
+            score += 5 * w["fpe"]
         elif fpe < 40:
-            score += 2
+            score += 2 * w["fpe"]
 
+    # --- Valuation: P/B ---
     pb = _safe(quote.get("priceToBook"))
     if pb is not None and pb > 0:
         if pb < 1.5:
-            score += 10
+            score += 10 * w["pb"]
         elif pb < 3:
-            score += 8
+            score += 8 * w["pb"]
         elif pb < 5:
-            score += 5
+            score += 5 * w["pb"]
         elif pb < 10:
-            score += 2
+            score += 2 * w["pb"]
 
+    # --- Dividends ---
     div_yield = _safe(quote.get("dividendYield"))
     if div_yield is not None and div_yield > 0:
         if div_yield > 4:
-            score += 12
+            score += 12 * w["dividend"]
         elif div_yield > 2.5:
-            score += 9
+            score += 9 * w["dividend"]
         elif div_yield > 1:
-            score += 6
+            score += 6 * w["dividend"]
         else:
-            score += 3
+            score += 3 * w["dividend"]
 
     div_rate = _safe(quote.get("dividendRate"))
     if div_rate is not None and div_rate > 0:
-        score += 8
+        score += 8 * w["dividend"]
 
+    # --- Momentum ---
     price = _safe(quote.get("regularMarketPrice"))
     sma50 = _safe(quote.get("fiftyDayAverage"))
     sma200 = _safe(quote.get("twoHundredDayAverage"))
@@ -298,37 +390,38 @@ def _quick_score(quote: dict) -> float:
     if price and sma50 and sma50 > 0:
         pct50 = (price - sma50) / sma50 * 100
         if pct50 > 5:
-            score += 13
+            score += 13 * w["momentum"]
         elif pct50 > 0:
-            score += 10
+            score += 10 * w["momentum"]
         elif pct50 > -5:
-            score += 6
+            score += 6 * w["momentum"]
         else:
-            score += 2
+            score += 2 * w["momentum"]
 
     if price and sma200 and sma200 > 0:
         pct200 = (price - sma200) / sma200 * 100
         if pct200 > 10:
-            score += 12
+            score += 12 * w["momentum"]
         elif pct200 > 0:
-            score += 9
+            score += 9 * w["momentum"]
         elif pct200 > -5:
-            score += 5
+            score += 5 * w["momentum"]
         else:
-            score += 1
+            score += 1 * w["momentum"]
 
+    # --- Size ---
     mcap = _safe(quote.get("marketCap"))
     if mcap is not None:
         if mcap > 200e9:
-            score += 20
+            score += 20 * w["size"]
         elif mcap > 50e9:
-            score += 16
+            score += 16 * w["size"]
         elif mcap > 10e9:
-            score += 12
+            score += 12 * w["size"]
         elif mcap > 2e9:
-            score += 8
+            score += 8 * w["size"]
         else:
-            score += 4
+            score += 4 * w["size"]
 
     return score
 
@@ -396,6 +489,113 @@ def _score_fundamentals(info: dict) -> ScoreBreakdown:
         sb.details.append({"label": "FCF Yield", "value": f"{fcf_yield:.1f}%", "pts": pts, "max": 8})
     else:
         sb.details.append({"label": "FCF Yield", "value": "N/A", "pts": 0, "max": 8})
+
+    return sb
+
+
+# ---------------------------------------------------------------------------
+# 1b. Growth & Efficiency  (max 25 pts, optional)
+# ---------------------------------------------------------------------------
+def _score_growth_efficiency(info: dict) -> Optional[ScoreBreakdown]:
+    sb = ScoreBreakdown(max_score=25)
+    data_count = 0
+
+    # Earnings Growth (max 7)
+    eg = _safe(info.get("earningsGrowth"))
+    if eg is not None:
+        eg_pct = eg * 100
+        data_count += 1
+        if eg_pct > 20:
+            pts = 7
+        elif eg_pct > 10:
+            pts = 5
+        elif eg_pct > 0:
+            pts = 3
+        else:
+            pts = 1
+        sb.score += pts
+        sb.details.append({"label": "Earnings Growth", "value": f"{eg_pct:+.1f}%", "pts": pts, "max": 7})
+    else:
+        sb.details.append({"label": "Earnings Growth", "value": "N/A", "pts": 0, "max": 7})
+
+    # Return on Equity (max 6)
+    roe = _safe(info.get("returnOnEquity"))
+    if roe is not None:
+        roe_pct = roe * 100
+        data_count += 1
+        if roe_pct > 20:
+            pts = 6
+        elif roe_pct > 12:
+            pts = 5
+        elif roe_pct > 5:
+            pts = 3
+        else:
+            pts = 1
+        sb.score += pts
+        sb.details.append({"label": "Return on Equity", "value": f"{roe_pct:.1f}%", "pts": pts, "max": 6})
+    else:
+        sb.details.append({"label": "Return on Equity", "value": "N/A", "pts": 0, "max": 6})
+
+    # Debt-to-Cash Ratio (max 5)
+    debt = _safe(info.get("totalDebt"))
+    cash = _safe(info.get("totalCash"))
+    if debt is not None and cash is not None and cash > 0:
+        ratio = debt / cash
+        data_count += 1
+        if ratio < 0.5:
+            pts = 5
+        elif ratio < 1:
+            pts = 4
+        elif ratio < 2:
+            pts = 3
+        elif ratio < 5:
+            pts = 1
+        else:
+            pts = 0
+        sb.score += pts
+        sb.details.append({"label": "Debt/Cash Ratio", "value": f"{ratio:.2f}", "pts": pts, "max": 5})
+    else:
+        sb.details.append({"label": "Debt/Cash Ratio", "value": "N/A", "pts": 0, "max": 5})
+
+    # Operating Margin Health (max 4)
+    op_margin = _safe(info.get("operatingMargins"))
+    net_margin = _safe(info.get("profitMargins"))
+    if op_margin is not None:
+        op_pct = op_margin * 100
+        data_count += 1
+        if op_pct > 25:
+            pts = 4
+        elif op_pct > 15:
+            pts = 3
+        elif op_pct > 5:
+            pts = 2
+        else:
+            pts = 1
+        sb.score += pts
+        sb.details.append({"label": "Operating Margin", "value": f"{op_pct:.1f}%", "pts": pts, "max": 4})
+    else:
+        sb.details.append({"label": "Operating Margin", "value": "N/A", "pts": 0, "max": 4})
+
+    # EV/EBITDA (max 3)
+    ev_ebitda = _safe(info.get("enterpriseToEbitda"))
+    if ev_ebitda is not None and ev_ebitda > 0:
+        data_count += 1
+        if ev_ebitda < 8:
+            pts = 3
+        elif ev_ebitda < 12:
+            pts = 2
+        elif ev_ebitda < 20:
+            pts = 1
+        else:
+            pts = 0
+        sb.score += pts
+        sb.details.append({"label": "EV/EBITDA", "value": f"{ev_ebitda:.1f}", "pts": pts, "max": 3})
+    else:
+        sb.details.append({"label": "EV/EBITDA", "value": "N/A", "pts": 0, "max": 3})
+
+    # Only activate section if at least 2 metrics have data
+    if data_count < 2:
+        return None
 
     return sb
 
@@ -1367,6 +1567,7 @@ def analyze_stock(symbol: str) -> StockReport:
             sent = _score_sentiment(fh_data, val_data)
             fv = _score_fair_value(val_data, price)
             rq = _score_risk_quality(val_data)
+            ge = _score_growth_efficiency(info)
             pred = _predict_price(info, hist, price, fh_data, val_data)
 
             report = StockReport(
@@ -1374,6 +1575,7 @@ def analyze_stock(symbol: str) -> StockReport:
                 price=price, currency=currency,
                 fundamentals=fund, valuation=val, dividends=div, technicals=tech,
                 sentiment=sent, fair_value=fv, risk_quality=rq,
+                growth_efficiency=ge,
                 prediction=pred,
             )
             logger.info(f"{symbol}: score={report.overall_pct:.0f}% ({report.rating})")
@@ -1409,7 +1611,8 @@ def analyze_multiple(symbols: list[str], progress_cb=None) -> list[dict]:
     return [r.to_dict() for r in reports]
 
 
-def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] = None, progress_cb=None) -> list[dict]:
+def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] = None,
+                   strategy: str = None, filters: dict = None, progress_cb=None) -> list[dict]:
     """Two-phase scan: screener -> quick score -> deep analyze top candidates."""
     if not markets:
         markets = ["us"]
@@ -1418,16 +1621,25 @@ def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] 
         if progress_cb:
             progress_cb(pct, msg)
 
+    strat = STRATEGIES.get(strategy) if strategy else None
+    screener_filters = dict(filters) if filters else {}
+    if strat:
+        for k, v in strat["screener_filters"].items():
+            if k not in screener_filters:
+                screener_filters[k] = v
+
     exchanges = []
     for m in markets:
         exchanges.extend(MARKETS.get(m, {}).get("exchanges", []))
     if not exchanges:
         exchanges = ["NMS", "NYQ"]
 
-    _progress(5, f"Screening {len(exchanges)} exchanges...")
-    logger.info(f"Phase 1: Screening exchanges {exchanges} (max_price={max_price})")
+    strat_label = f" [{strat['label']}]" if strat else ""
+    _progress(5, f"Screening {len(exchanges)} exchanges{strat_label}...")
+    logger.info(f"Phase 1: Screening exchanges {exchanges} (max_price={max_price}, strategy={strategy}, filters={screener_filters})")
     try:
-        quotes = screen_stocks(exchanges, max_price=max_price, size=_SCREENER_SIZE)
+        quotes = screen_stocks(exchanges, max_price=max_price, size=_SCREENER_SIZE,
+                               filters=screener_filters if screener_filters else None)
     except Exception as e:
         logger.error(f"Screener API failed: {e}")
         return []
@@ -1454,10 +1666,11 @@ def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] 
     _progress(15, f"Filtered {len(filtered)} from {len(quotes)} — scoring...")
     logger.info(f"After filtering: {len(filtered)} of {len(quotes)}")
 
+    score_weights = strat["score_weights"] if strat else None
     scored = []
     for q in filtered:
         sym = q.get("symbol")
-        qs = _quick_score(q)
+        qs = _quick_score(q, weights=score_weights)
         scored.append((qs, sym, q))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -1510,7 +1723,8 @@ def _upside_score(quote: dict) -> float:
     return analyst_upside * 0.5 + recovery_pct * 0.3 + fpe_bonus * 0.2
 
 
-def gamble_stocks(top_n: int = 30, max_price: float = None, markets: list[str] = None, progress_cb=None) -> list[dict]:
+def gamble_stocks(top_n: int = 30, max_price: float = None, markets: list[str] = None,
+                  filters: dict = None, progress_cb=None) -> list[dict]:
     """Find high-upside, riskier stocks — sorted by predicted gains, not safety."""
     if not markets:
         markets = ["us"]
@@ -1526,9 +1740,10 @@ def gamble_stocks(top_n: int = 30, max_price: float = None, markets: list[str] =
         exchanges = ["NMS", "NYQ"]
 
     _progress(5, f"Screening {len(exchanges)} exchanges...")
-    logger.info(f"Gamble mode: Screening exchanges {exchanges} (max_price={max_price})")
+    logger.info(f"Gamble mode: Screening exchanges {exchanges} (max_price={max_price}, filters={filters})")
     try:
-        quotes = screen_stocks(exchanges, max_price=max_price, size=_SCREENER_SIZE)
+        quotes = screen_stocks(exchanges, max_price=max_price, size=_SCREENER_SIZE,
+                               filters=filters if filters else None)
     except Exception as e:
         logger.error(f"Screener API failed: {e}")
         return []
@@ -1586,6 +1801,482 @@ def gamble_stocks(top_n: int = 30, max_price: float = None, markets: list[str] =
     return good[:top_n]
 
 
+# ---------------------------------------------------------------------------
+# Scout mode: event-driven stock discovery
+# ---------------------------------------------------------------------------
+SCOUT_SIGNALS = [
+    "earnings_beat",
+    "insider_buying",
+    "analyst_upgrade",
+    "new_52w_low",
+    "high_upside_gap",
+    "dividend_increase",
+]
+
+
+def _check_earnings_beat(symbol: str) -> Optional[str]:
+    """Check if stock beat earnings last quarter."""
+    data = finnhub_api.get_earnings_surprises(symbol)
+    if not data or not isinstance(data, list) or len(data) < 1:
+        return None
+    latest = data[0]
+    surprise_pct = latest.get("surprisePercent")
+    if surprise_pct is not None and surprise_pct > 0:
+        return f"Beat earnings by {surprise_pct:.1f}%"
+    return None
+
+
+def _check_insider_buying(symbol: str) -> Optional[str]:
+    """Check for net insider buying in recent transactions."""
+    data = finnhub_api.get_insider_transactions(symbol)
+    if not data or not isinstance(data, dict):
+        return None
+    transactions = data.get("data", [])
+    if not transactions:
+        return None
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+    buys = 0
+    sells = 0
+    for tx in transactions[:20]:
+        date = tx.get("transactionDate", "")
+        if date < cutoff:
+            continue
+        change = tx.get("change", 0)
+        if change > 0:
+            buys += 1
+        elif change < 0:
+            sells += 1
+    if buys > sells and buys >= 2:
+        return f"{buys} insider buys vs {sells} sells (90d)"
+    return None
+
+
+def _check_analyst_upgrade(symbol: str) -> Optional[str]:
+    """Check for recent analyst upgrades."""
+    data = finnhub_api.get_recommendation_trend(symbol)
+    if not data or not isinstance(data, list) or len(data) < 2:
+        return None
+    current = data[0]
+    previous = data[1]
+    curr_bull = (current.get("buy", 0) + current.get("strongBuy", 0))
+    prev_bull = (previous.get("buy", 0) + previous.get("strongBuy", 0))
+    if curr_bull > prev_bull:
+        diff = curr_bull - prev_bull
+        return f"+{diff} analyst upgrade(s) this month"
+    return None
+
+
+def _check_52w_low(quote: dict) -> Optional[str]:
+    """Check if stock is near 52-week low."""
+    price = _safe(quote.get("regularMarketPrice"))
+    low52 = _safe(quote.get("fiftyTwoWeekLow"))
+    high52 = _safe(quote.get("fiftyTwoWeekHigh"))
+    if not price or not low52 or not high52 or high52 == low52:
+        return None
+    position = (price - low52) / (high52 - low52) * 100
+    if position < 15:
+        return f"Near 52-week low ({position:.0f}% of range)"
+    return None
+
+
+def _check_high_upside(quote: dict) -> Optional[str]:
+    """Check for large gap between price and analyst target."""
+    price = _safe(quote.get("regularMarketPrice"))
+    target = _safe(quote.get("targetMeanPrice")) or _safe(quote.get("targetMedianPrice"))
+    if not price or not target or price <= 0:
+        return None
+    upside = (target - price) / price * 100
+    if upside > 30:
+        return f"Analyst target {upside:.0f}% above current price"
+    return None
+
+
+def _check_dividend_increase(quote: dict) -> Optional[str]:
+    """Check if trailing dividend yield is meaningfully higher than average."""
+    div_yield = _safe(quote.get("dividendYield"))
+    trailing_annual = _safe(quote.get("trailingAnnualDividendYield"))
+    if div_yield and trailing_annual and div_yield > 0:
+        if div_yield > trailing_annual * 1.1 and div_yield > 2:
+            return f"Dividend yield {div_yield:.1f}% (above trailing avg)"
+    elif div_yield and div_yield > 4:
+        return f"High dividend yield: {div_yield:.1f}%"
+    return None
+
+
+def scout_stocks(top_n: int = 30, max_price: float = None, markets: list[str] = None,
+                 signals: list[str] = None, filters: dict = None, progress_cb=None) -> list[dict]:
+    """Event-driven stock discovery — find stocks with recent catalysts."""
+    if not markets:
+        markets = ["us"]
+    if not signals:
+        signals = SCOUT_SIGNALS
+
+    def _progress(pct, msg):
+        if progress_cb:
+            progress_cb(pct, msg)
+
+    exchanges = []
+    for m in markets:
+        exchanges.extend(MARKETS.get(m, {}).get("exchanges", []))
+    if not exchanges:
+        exchanges = ["NMS", "NYQ"]
+
+    _progress(5, f"Scouting {len(exchanges)} exchanges for catalysts...")
+    logger.info(f"Scout mode: exchanges={exchanges}, signals={signals}, filters={filters}")
+
+    try:
+        quotes = screen_stocks(exchanges, max_price=max_price, size=_SCREENER_SIZE,
+                               filters=filters if filters else None)
+    except Exception as e:
+        logger.error(f"Scout screener failed: {e}")
+        return []
+
+    if not quotes:
+        return []
+
+    import re
+    _SUFFIX_RE = re.compile(r"\.[A-Z]{1,4}$")
+    filtered = []
+    for q in quotes:
+        sym = q.get("symbol")
+        if not sym:
+            continue
+        if "-" in sym:
+            parts = sym.split("-")
+            if len(parts) == 2 and len(parts[1]) <= 2:
+                continue
+        if _SUFFIX_RE.search(sym):
+            continue
+        filtered.append(q)
+
+    _progress(10, f"Checking {len(filtered)} stocks for event signals...")
+
+    # Phase 1: Quick screener-level signal checks (no API calls)
+    candidates_with_signals = []
+    for q in filtered:
+        sym = q.get("symbol")
+        triggered = []
+
+        if "new_52w_low" in signals:
+            sig = _check_52w_low(q)
+            if sig:
+                triggered.append(("new_52w_low", sig))
+
+        if "high_upside_gap" in signals:
+            sig = _check_high_upside(q)
+            if sig:
+                triggered.append(("high_upside_gap", sig))
+
+        if "dividend_increase" in signals:
+            sig = _check_dividend_increase(q)
+            if sig:
+                triggered.append(("dividend_increase", sig))
+
+        if triggered:
+            candidates_with_signals.append((sym, q, triggered))
+
+    _progress(20, f"Found {len(candidates_with_signals)} screener-level signals...")
+
+    # Phase 2: API-based signal checks (Finnhub) on top quick-scored stocks
+    needs_api_check = any(s in signals for s in ["earnings_beat", "insider_buying", "analyst_upgrade"])
+
+    if needs_api_check and finnhub_api.is_configured():
+        scored_for_api = sorted(filtered, key=lambda q: _quick_score(q), reverse=True)[:80]
+        api_check_count = min(len(scored_for_api), 40)
+        _progress(25, f"Checking Finnhub signals for top {api_check_count} stocks...")
+
+        for idx, q in enumerate(scored_for_api[:api_check_count]):
+            sym = q.get("symbol")
+            triggered = []
+
+            if "earnings_beat" in signals:
+                sig = _check_earnings_beat(sym)
+                if sig:
+                    triggered.append(("earnings_beat", sig))
+
+            if "insider_buying" in signals:
+                sig = _check_insider_buying(sym)
+                if sig:
+                    triggered.append(("insider_buying", sig))
+
+            if "analyst_upgrade" in signals:
+                sig = _check_analyst_upgrade(sym)
+                if sig:
+                    triggered.append(("analyst_upgrade", sig))
+
+            if triggered:
+                existing = next((c for c in candidates_with_signals if c[0] == sym), None)
+                if existing:
+                    existing[2].extend(triggered)
+                else:
+                    candidates_with_signals.append((sym, q, triggered))
+
+            if idx % 5 == 0:
+                pct = 25 + int(idx / max(api_check_count, 1) * 30)
+                _progress(pct, f"Scanning signals {idx+1}/{api_check_count}...")
+
+    if not candidates_with_signals:
+        _progress(100, "No stocks matched the selected signals.")
+        return []
+
+    # Sort by number of triggered signals (more signals = stronger candidate)
+    candidates_with_signals.sort(key=lambda x: len(x[2]), reverse=True)
+    to_analyze = candidates_with_signals[:top_n]
+
+    symbols = [sym for sym, _, _ in to_analyze]
+    signal_map = {sym: sigs for sym, _, sigs in to_analyze}
+
+    _progress(60, f"Deep-analyzing {len(symbols)} signal-triggered stocks...")
+    logger.info(f"Scout: {len(candidates_with_signals)} with signals -> analyzing {len(symbols)}")
+
+    def _analysis_progress(done, total):
+        pct = 60 + int(done / max(total, 1) * 35)
+        _progress(pct, f"Analyzing {done}/{total} stocks...")
+
+    all_results = analyze_multiple(symbols, progress_cb=_analysis_progress)
+
+    good = []
+    for r in all_results:
+        if r.get("error"):
+            continue
+        ticker = r["ticker"]
+        if ticker in signal_map:
+            r["scout_signals"] = [{"signal": s, "description": d} for s, d in signal_map[ticker]]
+        good.append(r)
+
+    good.sort(key=lambda r: (len(r.get("scout_signals", [])), r.get("overall_pct", 0)), reverse=True)
+    return good[:top_n]
+
+
+# ---------------------------------------------------------------------------
+# Technical scan: chart-pattern detection
+# ---------------------------------------------------------------------------
+def technical_scan(top_n: int = 30, max_price: float = None, markets: list[str] = None,
+                   setups: list[str] = None, filters: dict = None, progress_cb=None) -> list[dict]:
+    """Scan for stocks exhibiting specific technical chart setups."""
+    if not markets:
+        markets = ["us"]
+    if not setups:
+        setups = ["golden_cross", "rsi_oversold_bounce", "breakout", "pullback_to_support"]
+
+    def _progress(pct, msg):
+        if progress_cb:
+            progress_cb(pct, msg)
+
+    exchanges = []
+    for m in markets:
+        exchanges.extend(MARKETS.get(m, {}).get("exchanges", []))
+    if not exchanges:
+        exchanges = ["NMS", "NYQ"]
+
+    _progress(5, "Screening for technical scan candidates...")
+    try:
+        quotes = screen_stocks(exchanges, max_price=max_price, size=_SCREENER_SIZE,
+                               filters=filters if filters else None)
+    except Exception as e:
+        logger.error(f"Technical scan screener failed: {e}")
+        return []
+
+    if not quotes:
+        return []
+
+    # Pre-filter via quick score, take top 60 for chart analysis
+    scored = [((_quick_score(q), q.get("symbol"), q)) for q in quotes if q.get("symbol")]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    candidates = scored[:60]
+
+    _progress(15, f"Fetching chart data for {len(candidates)} candidates...")
+    results_with_setups = []
+
+    for idx, (_, sym, q) in enumerate(candidates):
+        if not sym:
+            continue
+        try:
+            chart = get_chart(sym, range_str="1y", interval="1d")
+            if chart is None or chart.empty or len(chart) < 50:
+                continue
+
+            closes = chart["Close"].values
+            triggered = []
+
+            # Golden Cross: SMA-50 crosses above SMA-200 in last 5 days
+            if "golden_cross" in setups and len(closes) >= 200:
+                sma50 = pd.Series(closes).rolling(50).mean().values
+                sma200 = pd.Series(closes).rolling(200).mean().values
+                for day in range(-5, 0):
+                    if (not np.isnan(sma50[day]) and not np.isnan(sma200[day]) and
+                        not np.isnan(sma50[day-1]) and not np.isnan(sma200[day-1])):
+                        if sma50[day] > sma200[day] and sma50[day-1] <= sma200[day-1]:
+                            triggered.append(("golden_cross", "Golden Cross detected in last 5 days"))
+                            break
+
+            # RSI Oversold Bounce: RSI was <30 within 10 days, now >35
+            if "rsi_oversold_bounce" in setups and len(closes) >= 20:
+                deltas = np.diff(closes)
+                gains = np.where(deltas > 0, deltas, 0)
+                losses = np.where(deltas < 0, -deltas, 0)
+                avg_gain = pd.Series(gains).rolling(14).mean().values
+                avg_loss = pd.Series(losses).rolling(14).mean().values
+                rsi_vals = []
+                for i in range(len(avg_gain)):
+                    if avg_loss[i] == 0:
+                        rsi_vals.append(100.0)
+                    elif np.isnan(avg_gain[i]) or np.isnan(avg_loss[i]):
+                        rsi_vals.append(50.0)
+                    else:
+                        rs = avg_gain[i] / avg_loss[i]
+                        rsi_vals.append(100 - (100 / (1 + rs)))
+                if len(rsi_vals) >= 10:
+                    current_rsi = rsi_vals[-1]
+                    was_oversold = any(r < 30 for r in rsi_vals[-10:])
+                    if was_oversold and current_rsi > 35:
+                        triggered.append(("rsi_oversold_bounce", f"RSI bounced from oversold (now {current_rsi:.0f})"))
+
+            # Breakout: price above 20-day high
+            if "breakout" in setups and len(closes) >= 25:
+                recent_high = max(closes[-25:-1])
+                if closes[-1] > recent_high:
+                    triggered.append(("breakout", f"Breakout above 20-day high"))
+
+            # Pullback to Support: within 2% of SMA-50 after being 5%+ above
+            if "pullback_to_support" in setups and len(closes) >= 55:
+                sma50_arr = pd.Series(closes).rolling(50).mean().values
+                current_sma50 = sma50_arr[-1]
+                if not np.isnan(current_sma50) and current_sma50 > 0:
+                    dist_now = (closes[-1] - current_sma50) / current_sma50 * 100
+                    was_extended = False
+                    for i in range(-10, -1):
+                        if not np.isnan(sma50_arr[i]) and sma50_arr[i] > 0:
+                            d = (closes[i] - sma50_arr[i]) / sma50_arr[i] * 100
+                            if d > 5:
+                                was_extended = True
+                                break
+                    if was_extended and -2 <= dist_now <= 2:
+                        triggered.append(("pullback_to_support", f"Pulled back to SMA-50 support ({dist_now:+.1f}%)"))
+
+            if triggered:
+                results_with_setups.append((sym, q, triggered))
+
+        except Exception as e:
+            logger.warning(f"Technical scan chart error for {sym}: {e}")
+            continue
+
+        if idx % 10 == 0:
+            pct = 15 + int(idx / max(len(candidates), 1) * 50)
+            _progress(pct, f"Scanning charts {idx+1}/{len(candidates)}...")
+
+    if not results_with_setups:
+        _progress(100, "No technical setups found.")
+        return []
+
+    results_with_setups.sort(key=lambda x: len(x[2]), reverse=True)
+    to_analyze = results_with_setups[:top_n]
+
+    symbols = [sym for sym, _, _ in to_analyze]
+    setup_map = {sym: sigs for sym, _, sigs in to_analyze}
+
+    _progress(70, f"Deep-analyzing {len(symbols)} stocks with technical setups...")
+
+    def _analysis_progress(done, total):
+        pct = 70 + int(done / max(total, 1) * 25)
+        _progress(pct, f"Analyzing {done}/{total} stocks...")
+
+    all_results = analyze_multiple(symbols, progress_cb=_analysis_progress)
+
+    good = []
+    for r in all_results:
+        if r.get("error"):
+            continue
+        ticker = r["ticker"]
+        if ticker in setup_map:
+            r["scout_signals"] = [{"signal": s, "description": d} for s, d in setup_map[ticker]]
+        good.append(r)
+
+    good.sort(key=lambda r: r.get("overall_pct", 0), reverse=True)
+    return good[:top_n]
+
+
+# ---------------------------------------------------------------------------
+# Find Similar: discover stocks with characteristics like a reference stock
+# ---------------------------------------------------------------------------
+def find_similar(ticker: str, top_n: int = 10, markets: list[str] = None,
+                 progress_cb=None) -> list[dict]:
+    """Find stocks similar to the given ticker based on its characteristics."""
+    if not markets:
+        markets = ["us"]
+
+    def _progress(pct, msg):
+        if progress_cb:
+            progress_cb(pct, msg)
+
+    _progress(5, f"Analyzing {ticker} to build similarity profile...")
+    summary = get_quote_summary(ticker)
+    if not summary:
+        return []
+    info = extract_info(summary)
+
+    sector = info.get("sector")
+    mcap = _safe(info.get("marketCap"))
+    pe = _safe(info.get("trailingPE"))
+    div_yield = _safe(info.get("dividendYield"))
+
+    sim_filters = {}
+
+    if sector and sector != "N/A":
+        sim_filters["sectors"] = [sector]
+
+    if mcap and mcap > 0:
+        sim_filters["min_market_cap"] = mcap * 0.3
+        sim_filters["max_market_cap"] = mcap * 3.0
+
+    if pe and pe > 0:
+        sim_filters["min_pe"] = max(1, pe * 0.5)
+        sim_filters["max_pe"] = pe * 2.0
+
+    if div_yield and div_yield > 0:
+        sim_filters["min_dividend_yield"] = max(0, (div_yield * 100) * 0.5)
+
+    exchanges = []
+    for m in markets:
+        exchanges.extend(MARKETS.get(m, {}).get("exchanges", []))
+    if not exchanges:
+        exchanges = ["NMS", "NYQ"]
+
+    _progress(15, f"Screening for stocks similar to {ticker}...")
+    logger.info(f"Find similar: {ticker} -> filters={sim_filters}")
+
+    try:
+        quotes = screen_stocks(exchanges, size=_SCREENER_SIZE,
+                               filters=sim_filters if sim_filters else None)
+    except Exception as e:
+        logger.error(f"Find similar screener failed: {e}")
+        return []
+
+    if not quotes:
+        return []
+
+    # Remove the reference ticker from results
+    quotes = [q for q in quotes if q.get("symbol") != ticker]
+
+    scored = [(_quick_score(q), q.get("symbol"), q) for q in quotes if q.get("symbol")]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    candidates = scored[:top_n + 5]
+
+    symbols = [sym for _, sym, _ in candidates]
+    _progress(40, f"Deep-analyzing {len(symbols)} similar stocks...")
+
+    def _analysis_progress(done, total):
+        pct = 40 + int(done / max(total, 1) * 55)
+        _progress(pct, f"Analyzing {done}/{total} stocks...")
+
+    all_results = analyze_multiple(symbols, progress_cb=_analysis_progress)
+
+    good = [r for r in all_results if not r.get("error") and r["ticker"] != ticker]
+    good.sort(key=lambda r: r.get("overall_pct", 0), reverse=True)
+    return good[:top_n]
+
+
 def _empty_report(symbol, error="Unknown error"):
     empty = ScoreBreakdown()
     return StockReport(
@@ -1617,6 +2308,10 @@ def _report_from_dict(d: dict) -> StockReport:
     if d.get("risk_quality"):
         rq = _to_breakdown(d["risk_quality"])
 
+    ge = None
+    if d.get("growth_efficiency"):
+        ge = _to_breakdown(d["growth_efficiency"])
+
     return StockReport(
         ticker=d["ticker"], name=d["name"],
         sector=d.get("sector", "N/A"), industry=d.get("industry", "N/A"),
@@ -1628,6 +2323,101 @@ def _report_from_dict(d: dict) -> StockReport:
         sentiment=sent,
         fair_value=fv,
         risk_quality=rq,
+        growth_efficiency=ge,
         prediction=d.get("prediction"),
         error=d.get("error"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Reddit Discovery
+# ---------------------------------------------------------------------------
+def reddit_stocks(top_n: int = 15, subreddits: list = None, markets: list = None,
+                  progress_cb=None) -> list[dict]:
+    """
+    Discover trending stocks on Reddit (WSB and others).
+    Scrapes mentions, validates tickers, and runs full analysis.
+    """
+    from reddit_api import scrape_wsb_tickers
+
+    if progress_cb:
+        progress_cb(5, "Scraping Reddit for ticker mentions...")
+
+    reddit_data = scrape_wsb_tickers(subreddits=subreddits, limit=100)
+    all_tickers = reddit_data.get("tickers", {})
+    post_data = reddit_data.get("posts", {})
+
+    if not all_tickers:
+        logger.warning("Reddit scrape returned no tickers")
+        return []
+
+    # Take top candidates (more than we need, some might be invalid)
+    candidates = list(all_tickers.keys())[:top_n * 3]
+
+    # Validate tickers by checking if Yahoo has data for them
+    valid_symbols = []
+    for sym in candidates:
+        if len(valid_symbols) >= top_n:
+            break
+        try:
+            _throttle()
+            summary = get_quote_summary(sym)
+            if summary:
+                price_data = summary.get("price", {})
+                market_price = price_data.get("regularMarketPrice", {})
+                if isinstance(market_price, dict):
+                    market_price = market_price.get("raw", 0)
+                if market_price and market_price > 0:
+                    valid_symbols.append(sym)
+        except Exception:
+            continue
+
+    if not valid_symbols:
+        logger.warning("No valid Reddit tickers found after validation")
+        return []
+
+    logger.info(f"Reddit discovery: validated {len(valid_symbols)} tickers, running analysis")
+
+    if progress_cb:
+        progress_cb(30, f"Analyzing {len(valid_symbols)} Reddit-trending stocks...")
+
+    def _analysis_progress(done, total):
+        if progress_cb:
+            pct = 30 + int(done / max(total, 1) * 65)
+            progress_cb(pct, f"Analyzing {done}/{total} stocks...")
+
+    results = analyze_multiple(valid_symbols, progress_cb=_analysis_progress)
+
+    # Attach reddit signals to each result
+    for r in results:
+        ticker = r.ticker if hasattr(r, "ticker") else r.get("ticker", "")
+        mentions = all_tickers.get(ticker, 0)
+        posts = post_data.get(ticker, [])
+        reddit_signals = {
+            "mentions": mentions,
+            "posts": posts,
+            "subreddits": subreddits or ["wallstreetbets"],
+        }
+        if hasattr(r, "to_dict"):
+            pass  # handled below
+        else:
+            r["reddit_signals"] = reddit_signals
+
+    # Convert to dicts and attach signals
+    final = []
+    for r in results:
+        if hasattr(r, "to_dict"):
+            d = r.to_dict()
+        else:
+            d = r
+        ticker = d.get("ticker", "")
+        d["reddit_signals"] = {
+            "mentions": all_tickers.get(ticker, 0),
+            "posts": post_data.get(ticker, []),
+            "subreddits": subreddits or ["wallstreetbets"],
+        }
+        final.append(d)
+
+    # Sort by mention count (most discussed first)
+    final.sort(key=lambda x: x.get("reddit_signals", {}).get("mentions", 0), reverse=True)
+    return final

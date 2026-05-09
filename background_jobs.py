@@ -72,7 +72,7 @@ def get_cached_results(kind, markets, max_price):
 
 def _run_job(job_id, kind, user_id, params):
     """Execute analysis in a background thread."""
-    from analyzer import suggest_stocks, gamble_stocks
+    from analyzer import suggest_stocks, gamble_stocks, scout_stocks, technical_scan, find_similar, reddit_stocks
 
     top_n = params.get("top", 30)
     max_price = params.get("max_price")
@@ -85,13 +85,46 @@ def _run_job(job_id, kind, user_id, params):
         _update_job(job_id, progress=5, message="Screening exchanges...")
 
         if kind == "suggest":
+            strategy = params.get("strategy")
+            filters = params.get("filters")
             results = suggest_stocks(
                 top_n, max_price=max_price, markets=markets,
+                strategy=strategy, filters=filters,
                 progress_cb=progress_cb,
             )
         elif kind == "gamble":
+            filters = params.get("filters")
             results = gamble_stocks(
                 top_n, max_price=max_price, markets=markets,
+                filters=filters,
+                progress_cb=progress_cb,
+            )
+        elif kind == "scout":
+            signals = params.get("signals")
+            filters = params.get("filters")
+            results = scout_stocks(
+                top_n, max_price=max_price, markets=markets,
+                signals=signals, filters=filters,
+                progress_cb=progress_cb,
+            )
+        elif kind == "technical_scan":
+            setups = params.get("setups")
+            filters = params.get("filters")
+            results = technical_scan(
+                top_n, max_price=max_price, markets=markets,
+                setups=setups, filters=filters,
+                progress_cb=progress_cb,
+            )
+        elif kind == "find_similar":
+            ticker = params.get("ticker")
+            results = find_similar(
+                ticker, top_n=top_n, markets=markets,
+                progress_cb=progress_cb,
+            )
+        elif kind == "reddit":
+            subreddits = params.get("subreddits") or ["wallstreetbets"]
+            results = reddit_stocks(
+                top_n=top_n, subreddits=subreddits, markets=markets,
                 progress_cb=progress_cb,
             )
         else:
