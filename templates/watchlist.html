@@ -107,6 +107,18 @@
   .act-btn:disabled { opacity: .5; cursor: wait; }
   .act-btn svg { width: 14px; height: 14px; fill: currentColor; }
 
+  /* Chart section */
+  .wl-chart { border-top: 1px solid var(--border); display: none; }
+  .wl-chart.show { display: block; }
+  .chart-toolbar { display: flex; align-items: center; gap: 4px; padding: 8px 20px; background: var(--surface2); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .chart-tf-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--text2); font-size: .72rem; font-weight: 600; cursor: pointer; transition: all .15s; text-transform: uppercase; letter-spacing: .3px; }
+  .chart-tf-btn:hover { color: var(--text); background: var(--surface); }
+  .chart-tf-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .chart-type-btn { margin-left: auto; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); font-size: .72rem; font-weight: 600; cursor: pointer; transition: all .15s; }
+  .chart-type-btn:hover { border-color: var(--accent); color: var(--accent2); }
+  .chart-container { height: 320px; padding: 0 8px 8px; background: #0a0c12; }
+  .chart-loading { display: flex; align-items: center; justify-content: center; height: 320px; color: var(--text2); font-size: .85rem; }
+
   /* Inline analysis result */
   .wl-analysis { border-top: 1px solid var(--border); padding: 14px 20px; display: none; }
   .wl-analysis.show { display: block; }
@@ -212,11 +224,13 @@
     </div>
   </div>
 
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 const statusEl = document.getElementById('status');
 const listEl = document.getElementById('watchlist');
 let allItems = [];
 let originalOrder = [];
+const chartInstances = {};
 
 document.getElementById('addTicker').addEventListener('keydown', e => { if (e.key === 'Enter') addTicker(); });
 
@@ -347,8 +361,24 @@ function renderItems(items) {
         <textarea id="note-${item.ticker}" placeholder="Add a note...">${item.notes || ''}</textarea>
         <button class="note-save" onclick="saveNote('${item.ticker}', this)">Save</button>
       </div>
+      <div class="wl-chart" id="chart-section-${item.ticker}">
+        <div class="chart-toolbar" id="chart-toolbar-${item.ticker}">
+          <button class="chart-tf-btn" data-range="1mo" data-interval="1d" onclick="switchTimeframe('${item.ticker}','1mo','1d',this)">1M</button>
+          <button class="chart-tf-btn" data-range="3mo" data-interval="1d" onclick="switchTimeframe('${item.ticker}','3mo','1d',this)">3M</button>
+          <button class="chart-tf-btn active" data-range="6mo" data-interval="1d" onclick="switchTimeframe('${item.ticker}','6mo','1d',this)">6M</button>
+          <button class="chart-tf-btn" data-range="1y" data-interval="1d" onclick="switchTimeframe('${item.ticker}','1y','1d',this)">1Y</button>
+          <button class="chart-tf-btn" data-range="2y" data-interval="1wk" onclick="switchTimeframe('${item.ticker}','2y','1wk',this)">2Y</button>
+          <button class="chart-tf-btn" data-range="5y" data-interval="1wk" onclick="switchTimeframe('${item.ticker}','5y','1wk',this)">5Y</button>
+          <button class="chart-type-btn" onclick="toggleChartType('${item.ticker}', this)">Candles</button>
+        </div>
+        <div class="chart-container" id="chart-${item.ticker}"></div>
+      </div>
       <div class="wl-analysis" id="${analysisId}"></div>
       <div class="wl-actions">
+        <button class="act-btn" onclick="toggleChart('${item.ticker}')">
+          <svg viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
+          Chart
+        </button>
         <button class="act-btn" onclick="analyzeTicker('${item.ticker}','${analysisId}',this)">
           <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
           Analyze
@@ -474,6 +504,137 @@ async function submitPortfolio() {
 document.getElementById('portfolioModal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closePortfolioModal();
 });
+
+// ---------- Bloomberg-style Charts ----------
+async function toggleChart(ticker) {
+  const section = document.getElementById('chart-section-' + ticker);
+  if (section.classList.contains('show')) {
+    section.classList.remove('show');
+    return;
+  }
+  section.classList.add('show');
+  if (!chartInstances[ticker]) {
+    await loadChart(ticker, '6mo', '1d');
+  }
+}
+
+async function loadChart(ticker, range, interval) {
+  const container = document.getElementById('chart-' + ticker);
+  container.innerHTML = '<div class="chart-loading"><span class="spinner"></span>Loading chart...</div>';
+
+  try {
+    const resp = await fetch(`/api/chart/${ticker}?range=${range}&interval=${interval}`);
+    const json = await resp.json();
+    if (!json.data || !json.data.length) {
+      container.innerHTML = '<div class="chart-loading">No chart data available.</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+
+    if (chartInstances[ticker] && chartInstances[ticker].chart) {
+      chartInstances[ticker].chart.remove();
+    }
+
+    const chart = LightweightCharts.createChart(container, {
+      width: container.clientWidth,
+      height: 312,
+      layout: {
+        background: { type: 'solid', color: '#0a0c12' },
+        textColor: '#9ca0b4',
+        fontFamily: "'Segoe UI', -apple-system, sans-serif",
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: '#1a1d27' },
+        horzLines: { color: '#1a1d27' },
+      },
+      crosshair: {
+        mode: LightweightCharts.CrosshairMode.Normal,
+        vertLine: { color: '#6c5ce7', width: 1, style: 2 },
+        horzLine: { color: '#6c5ce7', width: 1, style: 2 },
+      },
+      rightPriceScale: {
+        borderColor: '#2e3348',
+        scaleMargins: { top: 0.1, bottom: 0.1 },
+      },
+      timeScale: {
+        borderColor: '#2e3348',
+        timeVisible: interval !== '1d' && interval !== '1wk' && interval !== '1mo',
+      },
+      handleScroll: true,
+      handleScale: true,
+    });
+
+    const chartType = (chartInstances[ticker] && chartInstances[ticker].type) || 'area';
+    let series;
+
+    if (chartType === 'candle') {
+      series = chart.addCandlestickSeries({
+        upColor: '#00cec9',
+        downColor: '#ff6b6b',
+        borderUpColor: '#00cec9',
+        borderDownColor: '#ff6b6b',
+        wickUpColor: '#00cec9',
+        wickDownColor: '#ff6b6b',
+      });
+      series.setData(json.data.filter(d => d.open && d.high && d.low && d.close));
+    } else {
+      series = chart.addAreaSeries({
+        topColor: 'rgba(108, 92, 231, 0.4)',
+        bottomColor: 'rgba(108, 92, 231, 0.0)',
+        lineColor: '#a29bfe',
+        lineWidth: 2,
+        crosshairMarkerBackgroundColor: '#a29bfe',
+      });
+      series.setData(json.data.filter(d => d.close).map(d => ({ time: d.time, value: d.close })));
+    }
+
+    const volumeSeries = chart.addHistogramSeries({
+      color: '#2e3348',
+      priceFormat: { type: 'volume' },
+      priceScaleId: '',
+      scaleMargins: { top: 0.85, bottom: 0 },
+    });
+    volumeSeries.setData(json.data.filter(d => d.volume).map(d => ({
+      time: d.time,
+      value: d.volume,
+      color: d.close >= d.open ? 'rgba(0,206,201,.3)' : 'rgba(255,107,107,.3)',
+    })));
+
+    chart.timeScale().fitContent();
+
+    const ro = new ResizeObserver(() => {
+      chart.applyOptions({ width: container.clientWidth });
+    });
+    ro.observe(container);
+
+    chartInstances[ticker] = {
+      chart, series, volumeSeries, ro,
+      type: chartType,
+      range, interval,
+    };
+  } catch (err) {
+    container.innerHTML = '<div class="chart-loading">Failed to load chart.</div>';
+  }
+}
+
+function switchTimeframe(ticker, range, interval, btn) {
+  const toolbar = document.getElementById('chart-toolbar-' + ticker);
+  toolbar.querySelectorAll('.chart-tf-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadChart(ticker, range, interval);
+}
+
+function toggleChartType(ticker, btn) {
+  const inst = chartInstances[ticker];
+  const newType = (!inst || inst.type === 'area') ? 'candle' : 'area';
+  if (inst) inst.type = newType;
+  btn.textContent = newType === 'candle' ? 'Area' : 'Candles';
+  const range = (inst && inst.range) || '6mo';
+  const interval = (inst && inst.interval) || '1d';
+  loadChart(ticker, range, interval);
+}
 
 loadWatchlist();
 </script>

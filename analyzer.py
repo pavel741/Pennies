@@ -90,6 +90,12 @@ MARKETS = {
     "switzerland": {"label": "Switzerland", "exchanges": ["EBS"]},
     "spain":       {"label": "Spain",       "exchanges": ["MCE"]},
     "belgium":     {"label": "Belgium",     "exchanges": ["BRU"]},
+    "italy":       {"label": "Italy",       "exchanges": ["MIL"]},
+    "finland":     {"label": "Finland",     "exchanges": ["HEL"]},
+    "portugal":    {"label": "Portugal",    "exchanges": ["LIS"]},
+    "austria":     {"label": "Austria",     "exchanges": ["VIE"]},
+    "poland":      {"label": "Poland",      "exchanges": ["WSE"]},
+    "ireland":     {"label": "Ireland",     "exchanges": ["ISE"]},
     "nordics":     {"label": "Nordics",     "exchanges": ["CPH", "OSL", "STO"]},
     "canada":      {"label": "Canada",      "exchanges": ["TOR"]},
 }

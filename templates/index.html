@@ -646,6 +646,31 @@
     margin-top: 4px;
   }
 
+  /* ---- Chart section (main page) ---- */
+  .main-chart-section {
+    border-top: 1px solid var(--border);
+    background: #0a0c12;
+  }
+  .mchart-toolbar {
+    display: flex; align-items: center; gap: 4px; padding: 8px 16px;
+    background: var(--surface2); border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  .mchart-tf {
+    padding: 3px 9px; border-radius: 5px; border: 1px solid transparent;
+    background: transparent; color: var(--text2); font-size: .7rem; font-weight: 600;
+    cursor: pointer; transition: all .15s; text-transform: uppercase; letter-spacing: .3px;
+  }
+  .mchart-tf:hover { color: var(--text); background: var(--surface); }
+  .mchart-tf.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .mchart-type-btn {
+    margin-left: auto; padding: 3px 9px; border-radius: 5px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text2); font-size: .7rem; font-weight: 600;
+    cursor: pointer; transition: all .15s;
+  }
+  .mchart-type-btn:hover { border-color: var(--accent); color: var(--accent2); }
+  .mchart-container { height: 280px; padding: 0 4px 4px; }
+  .mchart-loading { display: flex; align-items: center; justify-content: center; height: 280px; color: var(--text2); font-size: .85rem; }
+
   /* ---- News section ---- */
   .news-section {
     padding: 12px 22px;
@@ -736,6 +761,12 @@
       <label class="market-chip"><input type="checkbox" value="switzerland"> Switzerland</label>
       <label class="market-chip"><input type="checkbox" value="spain"> Spain</label>
       <label class="market-chip"><input type="checkbox" value="belgium"> Belgium</label>
+      <label class="market-chip"><input type="checkbox" value="italy"> Italy</label>
+      <label class="market-chip"><input type="checkbox" value="finland"> Finland</label>
+      <label class="market-chip"><input type="checkbox" value="portugal"> Portugal</label>
+      <label class="market-chip"><input type="checkbox" value="austria"> Austria</label>
+      <label class="market-chip"><input type="checkbox" value="poland"> Poland</label>
+      <label class="market-chip"><input type="checkbox" value="ireland"> Ireland</label>
       <label class="market-chip"><input type="checkbox" value="nordics"> Nordics</label>
       <label class="market-chip"><input type="checkbox" value="canada"> Canada</label>
     </div>
@@ -893,9 +924,11 @@
 
   <div class="results" id="results"></div>
 
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 const suggestBtn = document.getElementById('suggestBtn');
 const lookupBtn  = document.getElementById('lookupBtn');
+const mainCharts = {};
 const statusEl   = document.getElementById('status');
 const resultsEl  = document.getElementById('results');
 const progressWrap = document.getElementById('progressWrap');
@@ -1516,6 +1549,19 @@ function renderResults(results) {
         <button class="card-action-btn" onclick="event.stopPropagation();addToWatchlist('${r.ticker}',this)">+ Watchlist</button>
         <button class="card-action-btn" onclick="event.stopPropagation();runFindSimilar('${r.ticker}')">Find Similar</button>
         <button class="card-action-btn" onclick="event.stopPropagation();loadNews('${r.ticker}',this)">News</button>
+        <button class="card-action-btn" onclick="event.stopPropagation();toggleMainChart('${r.ticker}',this)">Chart</button>
+      </div>
+      <div class="main-chart-section" id="mchart-${r.ticker}" style="display:none">
+        <div class="mchart-toolbar">
+          <button class="mchart-tf active" onclick="event.stopPropagation();switchMainTf('${r.ticker}','1mo','1d',this)">1M</button>
+          <button class="mchart-tf" onclick="event.stopPropagation();switchMainTf('${r.ticker}','3mo','1d',this)">3M</button>
+          <button class="mchart-tf" onclick="event.stopPropagation();switchMainTf('${r.ticker}','6mo','1d',this)">6M</button>
+          <button class="mchart-tf" onclick="event.stopPropagation();switchMainTf('${r.ticker}','1y','1d',this)">1Y</button>
+          <button class="mchart-tf" onclick="event.stopPropagation();switchMainTf('${r.ticker}','2y','1wk',this)">2Y</button>
+          <button class="mchart-tf" onclick="event.stopPropagation();switchMainTf('${r.ticker}','5y','1wk',this)">5Y</button>
+          <button class="mchart-type-btn" onclick="event.stopPropagation();toggleMainChartType('${r.ticker}',this)">Candles</button>
+        </div>
+        <div class="mchart-container" id="mchart-canvas-${r.ticker}"></div>
       </div>
       <div class="news-section" id="news-${r.ticker}" style="display:none"></div>`;
     resultsEl.appendChild(card);
@@ -1563,6 +1609,124 @@ async function loadNews(ticker, btn) {
     el.style.display = 'block';
     btn.textContent = 'News';
   }
+}
+
+// ---------- Bloomberg-style Charts (main page) ----------
+async function toggleMainChart(ticker, btn) {
+  const section = document.getElementById('mchart-' + ticker);
+  if (section.style.display !== 'none') {
+    section.style.display = 'none';
+    btn.textContent = 'Chart';
+    return;
+  }
+  section.style.display = 'block';
+  btn.textContent = 'Hide Chart';
+  if (!mainCharts[ticker]) {
+    await renderMainChart(ticker, '1mo', '1d');
+  }
+}
+
+async function renderMainChart(ticker, range, interval) {
+  const container = document.getElementById('mchart-canvas-' + ticker);
+  container.innerHTML = '<div class="mchart-loading"><span class="spinner"></span>Loading chart...</div>';
+
+  try {
+    const resp = await fetch(`/api/chart/${ticker}?range=${range}&interval=${interval}`);
+    const json = await resp.json();
+    if (!json.data || !json.data.length) {
+      container.innerHTML = '<div class="mchart-loading">No chart data.</div>';
+      return;
+    }
+    container.innerHTML = '';
+
+    if (mainCharts[ticker] && mainCharts[ticker].chart) {
+      mainCharts[ticker].chart.remove();
+    }
+
+    const chart = LightweightCharts.createChart(container, {
+      width: container.clientWidth,
+      height: 272,
+      layout: {
+        background: { type: 'solid', color: '#0a0c12' },
+        textColor: '#9ca0b4',
+        fontFamily: "'Segoe UI', -apple-system, sans-serif",
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: '#1a1d27' },
+        horzLines: { color: '#1a1d27' },
+      },
+      crosshair: {
+        mode: LightweightCharts.CrosshairMode.Normal,
+        vertLine: { color: '#6c5ce7', width: 1, style: 2 },
+        horzLine: { color: '#6c5ce7', width: 1, style: 2 },
+      },
+      rightPriceScale: { borderColor: '#2e3348', scaleMargins: { top: 0.1, bottom: 0.1 } },
+      timeScale: {
+        borderColor: '#2e3348',
+        timeVisible: !['1d','1wk','1mo'].includes(interval),
+      },
+      handleScroll: true,
+      handleScale: true,
+    });
+
+    const chartType = (mainCharts[ticker] && mainCharts[ticker].type) || 'area';
+    let series;
+
+    if (chartType === 'candle') {
+      series = chart.addCandlestickSeries({
+        upColor: '#00cec9', downColor: '#ff6b6b',
+        borderUpColor: '#00cec9', borderDownColor: '#ff6b6b',
+        wickUpColor: '#00cec9', wickDownColor: '#ff6b6b',
+      });
+      series.setData(json.data.filter(d => d.open && d.high && d.low && d.close));
+    } else {
+      series = chart.addAreaSeries({
+        topColor: 'rgba(108, 92, 231, 0.4)',
+        bottomColor: 'rgba(108, 92, 231, 0.0)',
+        lineColor: '#a29bfe',
+        lineWidth: 2,
+      });
+      series.setData(json.data.filter(d => d.close).map(d => ({ time: d.time, value: d.close })));
+    }
+
+    const volSeries = chart.addHistogramSeries({
+      color: '#2e3348',
+      priceFormat: { type: 'volume' },
+      priceScaleId: '',
+      scaleMargins: { top: 0.85, bottom: 0 },
+    });
+    volSeries.setData(json.data.filter(d => d.volume).map(d => ({
+      time: d.time, value: d.volume,
+      color: d.close >= d.open ? 'rgba(0,206,201,.3)' : 'rgba(255,107,107,.3)',
+    })));
+
+    chart.timeScale().fitContent();
+
+    const ro = new ResizeObserver(() => { chart.applyOptions({ width: container.clientWidth }); });
+    ro.observe(container);
+
+    mainCharts[ticker] = { chart, series, volSeries, ro, type: chartType, range, interval };
+  } catch (err) {
+    container.innerHTML = '<div class="mchart-loading">Failed to load chart.</div>';
+  }
+}
+
+function switchMainTf(ticker, range, interval, btn) {
+  const toolbar = btn.parentElement;
+  toolbar.querySelectorAll('.mchart-tf').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderMainChart(ticker, range, interval);
+}
+
+function toggleMainChartType(ticker, btn) {
+  const inst = mainCharts[ticker];
+  const newType = (!inst || inst.type === 'area') ? 'candle' : 'area';
+  if (inst) inst.type = newType;
+  btn.textContent = newType === 'candle' ? 'Area' : 'Candles';
+  const range = (inst && inst.range) || '1mo';
+  const interval = (inst && inst.interval) || '1d';
+  renderMainChart(ticker, range, interval);
 }
 
 function exportPDF() {

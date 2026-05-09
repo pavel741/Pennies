@@ -96,6 +96,28 @@
   .as-bar { width: 100%; height: 3px; background: var(--border); border-radius: 2px; margin-top: 4px; overflow: hidden; }
   .as-bar-fill { height: 100%; border-radius: 2px; }
 
+  /* Chart row */
+  .chart-row td { background: #0a0c12; padding: 0; }
+  .pchart-toolbar {
+    display: flex; align-items: center; gap: 4px; padding: 8px 16px;
+    background: var(--surface2); border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  .pchart-tf {
+    padding: 3px 9px; border-radius: 5px; border: 1px solid transparent;
+    background: transparent; color: var(--text2); font-size: .7rem; font-weight: 600;
+    cursor: pointer; transition: all .15s; text-transform: uppercase; letter-spacing: .3px;
+  }
+  .pchart-tf:hover { color: var(--text); background: var(--surface); }
+  .pchart-tf.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .pchart-type-btn {
+    margin-left: auto; padding: 3px 9px; border-radius: 5px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text2); font-size: .7rem; font-weight: 600;
+    cursor: pointer; transition: all .15s;
+  }
+  .pchart-type-btn:hover { border-color: var(--accent); color: var(--accent2); }
+  .pchart-container { height: 280px; padding: 0 4px 4px; }
+  .pchart-loading { display: flex; align-items: center; justify-content: center; height: 280px; color: var(--text2); font-size: .85rem; }
+
   /* Modal */
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; justify-content: center; align-items: center; }
   .modal-overlay.show { display: flex; }
@@ -207,11 +229,13 @@
     </div>
   </div>
 
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 const statusEl = document.getElementById('status');
 let allItems = [];
 let sortKey = null;
 let sortAsc = true;
+const pCharts = {};
 
 const COLORS = ['#6c5ce7','#00cec9','#fd79a8','#ffc048','#a29bfe','#55efc4','#ff6b6b','#74b9ff','#e17055','#00b894','#636e72','#d63031','#0984e3','#fdcb6e'];
 
@@ -403,6 +427,7 @@ function renderTable(items) {
       <td>${item.dividend_yield != null ? item.dividend_yield.toFixed(2) + '%' : '-'}</td>
       <td class="up">$${fmt(item.annual_dividend)}</td>
       <td><div class="row-actions">
+        <button class="row-btn" onclick="togglePortfolioChart('${item.ticker}',${idx},this)">Chart</button>
         <button class="row-btn" onclick="analyzeTicker('${item.ticker}',${idx},this)">Analyze</button>
         <button class="row-btn" onclick="openEditModal(${item.id},'${item.ticker}',${item.shares},${item.cost_basis})">Edit</button>
         <button class="row-btn" onclick="addToWatchlist('${item.ticker}',this)">Watch</button>
@@ -465,6 +490,140 @@ async function loadPortfolio() {
     renderDonut(data.items, data.total_value);
     renderTable(getSorted());
   } catch (err) { statusEl.className = 'status error'; statusEl.textContent = 'Failed to load portfolio.'; }
+}
+
+// ---------- Bloomberg-style Charts (portfolio) ----------
+function togglePortfolioChart(ticker, idx, btn) {
+  const chartRowId = 'pchart-row-' + idx;
+  const existing = document.getElementById(chartRowId);
+  if (existing) {
+    existing.remove();
+    if (pCharts[ticker] && pCharts[ticker].chart) {
+      pCharts[ticker].ro.disconnect();
+      pCharts[ticker].chart.remove();
+      delete pCharts[ticker];
+    }
+    return;
+  }
+
+  const parentRow = btn.closest('tr');
+  const colCount = parentRow.cells.length;
+  const tr = document.createElement('tr');
+  tr.className = 'chart-row';
+  tr.id = chartRowId;
+  tr.innerHTML = `<td colspan="${colCount}">
+    <div class="pchart-toolbar">
+      <button class="pchart-tf active" onclick="switchPTf('${ticker}',${idx},'1mo','1d',this)">1M</button>
+      <button class="pchart-tf" onclick="switchPTf('${ticker}',${idx},'3mo','1d',this)">3M</button>
+      <button class="pchart-tf" onclick="switchPTf('${ticker}',${idx},'6mo','1d',this)">6M</button>
+      <button class="pchart-tf" onclick="switchPTf('${ticker}',${idx},'1y','1d',this)">1Y</button>
+      <button class="pchart-tf" onclick="switchPTf('${ticker}',${idx},'2y','1wk',this)">2Y</button>
+      <button class="pchart-tf" onclick="switchPTf('${ticker}',${idx},'5y','1wk',this)">5Y</button>
+      <button class="pchart-type-btn" onclick="togglePChartType('${ticker}',${idx},this)">Candles</button>
+    </div>
+    <div class="pchart-container" id="pchart-${idx}"></div>
+  </td>`;
+  parentRow.after(tr);
+  renderPChart(ticker, idx, '1mo', '1d');
+}
+
+async function renderPChart(ticker, idx, range, interval) {
+  const container = document.getElementById('pchart-' + idx);
+  if (!container) return;
+  container.innerHTML = '<div class="pchart-loading"><span class="spinner"></span>Loading chart...</div>';
+
+  try {
+    const resp = await fetch(`/api/chart/${ticker}?range=${range}&interval=${interval}`);
+    const json = await resp.json();
+    if (!json.data || !json.data.length) {
+      container.innerHTML = '<div class="pchart-loading">No chart data.</div>';
+      return;
+    }
+    container.innerHTML = '';
+
+    if (pCharts[ticker] && pCharts[ticker].chart) {
+      pCharts[ticker].ro.disconnect();
+      pCharts[ticker].chart.remove();
+    }
+
+    const chart = LightweightCharts.createChart(container, {
+      width: container.clientWidth,
+      height: 272,
+      layout: {
+        background: { type: 'solid', color: '#0a0c12' },
+        textColor: '#9ca0b4',
+        fontFamily: "'Segoe UI', -apple-system, sans-serif",
+        fontSize: 11,
+      },
+      grid: { vertLines: { color: '#1a1d27' }, horzLines: { color: '#1a1d27' } },
+      crosshair: {
+        mode: LightweightCharts.CrosshairMode.Normal,
+        vertLine: { color: '#6c5ce7', width: 1, style: 2 },
+        horzLine: { color: '#6c5ce7', width: 1, style: 2 },
+      },
+      rightPriceScale: { borderColor: '#2e3348', scaleMargins: { top: 0.1, bottom: 0.1 } },
+      timeScale: { borderColor: '#2e3348', timeVisible: !['1d','1wk','1mo'].includes(interval) },
+      handleScroll: true,
+      handleScale: true,
+    });
+
+    const chartType = (pCharts[ticker] && pCharts[ticker].type) || 'area';
+    let series;
+
+    if (chartType === 'candle') {
+      series = chart.addCandlestickSeries({
+        upColor: '#00cec9', downColor: '#ff6b6b',
+        borderUpColor: '#00cec9', borderDownColor: '#ff6b6b',
+        wickUpColor: '#00cec9', wickDownColor: '#ff6b6b',
+      });
+      series.setData(json.data.filter(d => d.open && d.high && d.low && d.close));
+    } else {
+      series = chart.addAreaSeries({
+        topColor: 'rgba(108, 92, 231, 0.4)',
+        bottomColor: 'rgba(108, 92, 231, 0.0)',
+        lineColor: '#a29bfe',
+        lineWidth: 2,
+      });
+      series.setData(json.data.filter(d => d.close).map(d => ({ time: d.time, value: d.close })));
+    }
+
+    const volSeries = chart.addHistogramSeries({
+      color: '#2e3348',
+      priceFormat: { type: 'volume' },
+      priceScaleId: '',
+      scaleMargins: { top: 0.85, bottom: 0 },
+    });
+    volSeries.setData(json.data.filter(d => d.volume).map(d => ({
+      time: d.time, value: d.volume,
+      color: d.close >= d.open ? 'rgba(0,206,201,.3)' : 'rgba(255,107,107,.3)',
+    })));
+
+    chart.timeScale().fitContent();
+
+    const ro = new ResizeObserver(() => { chart.applyOptions({ width: container.clientWidth }); });
+    ro.observe(container);
+
+    pCharts[ticker] = { chart, series, volSeries, ro, type: chartType, range, interval };
+  } catch (err) {
+    container.innerHTML = '<div class="pchart-loading">Failed to load chart.</div>';
+  }
+}
+
+function switchPTf(ticker, idx, range, interval, btn) {
+  const toolbar = btn.parentElement;
+  toolbar.querySelectorAll('.pchart-tf').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderPChart(ticker, idx, range, interval);
+}
+
+function togglePChartType(ticker, idx, btn) {
+  const inst = pCharts[ticker];
+  const newType = (!inst || inst.type === 'area') ? 'candle' : 'area';
+  if (inst) inst.type = newType;
+  btn.textContent = newType === 'candle' ? 'Area' : 'Candles';
+  const range = (inst && inst.range) || '1mo';
+  const interval = (inst && inst.interval) || '1d';
+  renderPChart(ticker, idx, range, interval);
 }
 
 loadPortfolio();

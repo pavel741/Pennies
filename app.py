@@ -522,6 +522,37 @@ def watchlist_get():
     return jsonify({"items": results})
 
 
+@app.route("/api/chart/<ticker>")
+@login_required
+def api_chart(ticker):
+    ticker = ticker.strip().upper()
+    range_str = request.args.get("range", "6mo")
+    interval = request.args.get("interval", "1d")
+    allowed_ranges = {"1mo", "3mo", "6mo", "1y", "2y", "5y", "ytd"}
+    allowed_intervals = {"1d", "1wk", "1mo", "5m", "15m", "1h"}
+    if range_str not in allowed_ranges:
+        range_str = "6mo"
+    if interval not in allowed_intervals:
+        interval = "1d"
+    try:
+        df = get_chart(ticker, range_str=range_str, interval=interval)
+        if df.empty:
+            return jsonify({"error": "No chart data available", "data": []})
+        data = []
+        for ts, row in df.iterrows():
+            data.append({
+                "time": ts.strftime("%Y-%m-%d") if interval in ("1d", "1wk", "1mo") else int(ts.timestamp()),
+                "open": round(row["Open"], 4) if row["Open"] == row["Open"] else None,
+                "high": round(row["High"], 4) if row["High"] == row["High"] else None,
+                "low": round(row["Low"], 4) if row["Low"] == row["Low"] else None,
+                "close": round(row["Close"], 4) if row["Close"] == row["Close"] else None,
+                "volume": int(row["Volume"]) if row["Volume"] == row["Volume"] else 0,
+            })
+        return jsonify({"ticker": ticker, "range": range_str, "interval": interval, "data": data})
+    except Exception as e:
+        return jsonify({"error": str(e), "data": []}), 500
+
+
 @app.route("/api/watchlist/add", methods=["POST"])
 @login_required
 def watchlist_add():
