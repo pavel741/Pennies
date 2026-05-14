@@ -171,6 +171,18 @@ STRATEGIES = {
             "momentum": 0.3, "size": 0.3,
         },
     },
+    "growth_potential": {
+        "label": "Growth Potential",
+        "description": "High-growth companies that reinvest profits instead of paying dividends",
+        "screener_filters": {
+            "min_revenue_growth": 10,
+        },
+        "score_weights": {
+            "pe": 0.3, "fpe": 1.5, "pb": 0.2, "dividend": 0.0,
+            "momentum": 2.5, "size": 1.0,
+        },
+        "exclude_dividends": True,
+    },
 }
 
 STRATEGY_LIST = list(STRATEGIES.keys())
@@ -1668,6 +1680,12 @@ def suggest_stocks(top_n: int = 30, max_price: float = None, markets: list[str] 
         if _SUFFIX_RE.search(sym):
             continue
         filtered.append(q)
+
+    if strat and strat.get("exclude_dividends"):
+        before = len(filtered)
+        filtered = [q for q in filtered
+                    if not _safe(q.get("dividendYield")) and not _safe(q.get("dividendRate"))]
+        logger.info(f"Excluded dividend payers: {before} -> {len(filtered)}")
 
     _progress(15, f"Filtered {len(filtered)} from {len(quotes)} — scoring...")
     logger.info(f"After filtering: {len(filtered)} of {len(quotes)}")

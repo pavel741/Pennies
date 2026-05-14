@@ -634,6 +634,11 @@
     box-shadow: 0 4px 24px rgba(255,69,0,.35);
   }
   .reddit-btn:hover { box-shadow: 0 8px 32px rgba(255,69,0,.5); }
+  .growth-btn {
+    background: linear-gradient(135deg, #0984e3, #6c5ce7);
+    box-shadow: 0 4px 24px rgba(9,132,227,.35);
+  }
+  .growth-btn:hover { box-shadow: 0 8px 32px rgba(9,132,227,.5); }
   .reddit-badge {
     display: inline-block;
     background: rgba(255,69,0,.15);
@@ -787,6 +792,7 @@
         <option value="momentum">Momentum — strong uptrends</option>
         <option value="quality">Quality — high margins, large caps</option>
         <option value="bargain">Bargain — deeply cheap</option>
+        <option value="growth_potential">Growth Potential — no dividends</option>
       </select>
     </div>
 
@@ -891,6 +897,10 @@
       <button class="cta-btn reddit-btn" id="redditBtn" onclick="runReddit()">
         <svg viewBox="0 0 24 24"><path d="M12 0C5.373 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.6.11.793-.26.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.73.083-.73 1.205.085 1.84 1.237 1.84 1.237 1.07 1.834 2.806 1.304 3.49.997.108-.775.42-1.305.763-1.605-2.665-.305-5.467-1.334-5.467-5.931 0-1.31.469-2.381 1.237-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.51 11.51 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.236 1.911 1.236 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
         Reddit
+      </button>
+      <button class="cta-btn growth-btn" id="growthBtn" onclick="runGrowthPicks()">
+        <svg viewBox="0 0 24 24"><path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>
+        Growth Picks
       </button>
     </div>
   </div>
@@ -1052,7 +1062,7 @@ async function pollJob(jobId) {
 }
 
 function disableAllButtons(disabled) {
-  ['suggestBtn','gambleBtn','scoutBtn','techBtn','redditBtn'].forEach(id => {
+  ['suggestBtn','gambleBtn','scoutBtn','techBtn','redditBtn','growthBtn'].forEach(id => {
     document.getElementById(id).disabled = disabled;
   });
 }
@@ -1113,6 +1123,11 @@ async function runSuggest(force) {
     statusEl.textContent = err.message || 'Network error — is the server running?';
   }
   disableAllButtons(false);
+}
+
+async function runGrowthPicks() {
+  document.getElementById('strategySelect').value = 'growth_potential';
+  await runSuggest(false);
 }
 
 async function runGamble(force) {
